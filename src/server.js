@@ -8,6 +8,7 @@ require('dotenv').config();
 const { sequelize } = require('./models'); // Import Sequelize
 
 const errorMiddleware = require('./middleware/errorMiddleware'); // Import Global Error Middleware
+const { startDeclineExpiryJob } = require('./utils/declineExpiryJob');
 
 // Route Imports
 const documentRoutes = require('./routes/documentRoutes');
@@ -65,6 +66,7 @@ sequelize.authenticate()
         app.listen(PORT, () => {
             console.log(`Digital Signature API running on port ${PORT}`);
         });
+        startDeclineExpiryJob();
     })
     .catch(err => {
         console.error('Unable to connect to the database:', err);

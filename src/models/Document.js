@@ -7,7 +7,7 @@ const Document = sequelize.define('Document', {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
     },
-    // initiator_id is handled by relationships in index.js
+    // initiator_id and parent_document_id are handled by relationships in index.js
     fileName: {
         type: DataTypes.STRING,
         allowNull: false,
@@ -19,9 +19,18 @@ const Document = sequelize.define('Document', {
     signedFilePath: DataTypes.TEXT,
     currentHash: DataTypes.TEXT,
     status: {
-        type: DataTypes.ENUM('draft', 'pending', 'in_progress', 'completed', 'rejected', 'voided'),
+        type: DataTypes.ENUM('draft', 'pending', 'in_progress', 'completed', 'declined', 'superseded', 'voided'),
         defaultValue: 'draft',
     },
+    version: {
+        type: DataTypes.INTEGER,
+        defaultValue: 1,
+    },
+    resumeCount: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+    },
+    declineWarningSentAt: DataTypes.DATE,
 }, {
     tableName: 'documents',
     underscored: true,

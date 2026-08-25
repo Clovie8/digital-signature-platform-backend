@@ -12,6 +12,10 @@ const AuditLog = require('./AuditLog');
 User.hasMany(Document, { foreignKey: 'initiator_id', onDelete: 'CASCADE' });
 Document.belongsTo(User, { foreignKey: 'initiator_id' });
 
+// Document <-> Document (revisions)
+Document.belongsTo(Document, { as: 'parentDocument', foreignKey: 'parent_document_id' });
+Document.hasMany(Document, { as: 'revisions', foreignKey: 'parent_document_id' });
+
 // Document <-> WorkflowStep
 Document.hasMany(WorkflowStep, { foreignKey: 'document_id', onDelete: 'CASCADE' });
 WorkflowStep.belongsTo(Document, { foreignKey: 'document_id' });
