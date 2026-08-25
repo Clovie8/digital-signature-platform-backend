@@ -21,7 +21,7 @@ const WorkflowStep = sequelize.define('WorkflowStep', {
         allowNull: false,
     },
     status: {
-        type: DataTypes.ENUM('pending', 'completed', 'rejected'),
+        type: DataTypes.ENUM('pending', 'completed', 'declined'),
         defaultValue: 'pending',
     },
     signatureUiData: DataTypes.JSONB,
@@ -34,6 +34,8 @@ const WorkflowStep = sequelize.define('WorkflowStep', {
     stepHash: DataTypes.TEXT,
     otpCode: DataTypes.STRING(10),
     otpExpiresAt: DataTypes.DATE,
+    declineReason: DataTypes.TEXT,
+    declineType: DataTypes.ENUM('resumable', 'requires_revision'),
 }, {
     tableName: 'workflow_steps',
     underscored: true,

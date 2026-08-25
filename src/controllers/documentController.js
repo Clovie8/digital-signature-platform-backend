@@ -4,6 +4,26 @@ const asyncHandler = require('../utils/asyncHandler');
 const { AppError, NotFoundError, ValidationError, UnauthorizedError } = require('../utils/errors');
 require('dotenv').config();
 
+const listDocuments = asyncHandler(async (req, res) => {
+    const initiatorId = req.user.userId;
+    const documents = await documentService.listDocuments(initiatorId);
+    res.status(200).json({ documents });
+});
+
+const getDocument = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+
+    try {
+        const document = await documentService.getDocument(id, initiatorId);
+        res.status(200).json({ document });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
+        throw error;
+    }
+});
+
 const uploadDocument = asyncHandler(async (req, res) => {
     try {
         const initiatorId = req.user.userId;
@@ -43,6 +63,7 @@ const getSigningView = asyncHandler(async (req, res) => {
         res.status(200).json(data);
     } catch (error) {
         if (error.message === 'INVALID_LINK') throw new NotFoundError('Invalid or expired signing link.');
+        if (error.message === 'DOCUMENT_DECLINED') throw new ValidationError('This document was declined and is no longer available for signing.');
         if (error.message === 'ALREADY_SIGNED') throw new ValidationError('This document has already been signed or voided by this user.');
         if (error.message === 'INTEGRITY_COMPROMISED') throw new ValidationError('Document Integrity Compromised.');
         throw error;
@@ -61,9 +82,84 @@ const completeSigning = asyncHandler(async (req, res) => {
     await documentService.handleNextWorkflowStep(step, document);
 });
 
+const declineSigning = asyncHandler(async (req, res) => {
+    const { token } = req.params;
+    const { reason } = req.body;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+
+    try {
+        await documentService.declineSigning(token, reason, ipAddress);
+        res.status(200).json({ message: 'Signature declined. The initiator has been notified.' });
+    } catch (error) {
+        if (error.message === 'INVALID_STATE') throw new UnauthorizedError('Invalid token, or document already resolved.');
+        if (error.message === 'MISSING_REASON') throw new ValidationError('Please provide a reason for declining.');
+        throw error;
+    }
+});
+
+const resumeDocument = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+    const initiatorEmail = req.user.email;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+
+    try {
+        const { document } = await documentService.resumeDocument(id, initiatorId, initiatorEmail, ipAddress);
+        res.status(200).json({ message: 'Signer re-notified. Workflow resumed.', document });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can resume this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('Document is not in a declined state.');
+        if (error.message === 'RESUME_LIMIT_REACHED') throw new ValidationError('This document has already been resumed the maximum number of times. Create a revision or void it instead.');
+        throw error;
+    }
+});
+
+const reviseDocument = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+    const initiatorEmail = req.user.email;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    const newFileBuffer = req.file ? req.file.buffer : null;
+    const newFileName = req.file ? req.file.originalname : null;
+
+    try {
+        const { document, isInitiatorFirst, redirectToken } = await documentService.reviseDocument(id, initiatorId, initiatorEmail, ipAddress, newFileBuffer, newFileName);
+        res.status(201).json({ message: 'Revised version created. All signers have been notified.', document, isInitiatorFirst, redirectToken });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can revise this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('Document is not in a declined state.');
+        throw error;
+    }
+});
+
+const voidDocument = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+    const initiatorEmail = req.user.email;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+
+    try {
+        const { document } = await documentService.voidDocument(id, initiatorId, initiatorEmail, ipAddress);
+        res.status(200).json({ message: 'Document voided.', document });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can void this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document can no longer be voided.');
+        throw error;
+    }
+});
+
 module.exports = {
+    listDocuments,
+    getDocument,
+    voidDocument,
     uploadDocument,
     dispatchDocument,
     getSigningView,
-    completeSigning
+    completeSigning,
+    declineSigning,
+    resumeDocument,
+    reviseDocument
 };

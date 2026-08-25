@@ -1,11 +1,76 @@
 const crypto = require('crypto');
+const { v4: uuidv4 } = require('uuid');
 const { Document, WorkflowStep, AuditLog, User, sequelize } = require('../models');
 const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2 } = require('../utils/s3Manager');
-const { sendSignatureEmail, sendOTPEmail, sendCompletionEmail } = require('../utils/emailManager');
+const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail } = require('../utils/emailManager');
 const { stampDocument, appendAuditTrail } = require('../utils/pdfManager');
 
+const MAX_RESUMES = 3;
+
 class DocumentService {
-    
+
+    // List Documents (initiator's dashboard)
+    async listDocuments(initiatorId) {
+        const documents = await Document.findAll({
+            where: { initiator_id: initiatorId },
+            include: [{ model: WorkflowStep }],
+            order: [['updated_at', 'DESC']]
+        });
+
+        return documents.map(document => {
+            const steps = document.WorkflowSteps || [];
+            const declinedStep = steps.find(s => s.status === 'declined');
+
+            return {
+                id: document.id,
+                fileName: document.fileName,
+                status: document.status,
+                version: document.version,
+                resumeCount: document.resumeCount,
+                createdAt: document.created_at,
+                updatedAt: document.updated_at,
+                totalSteps: steps.length,
+                signedSteps: steps.filter(s => s.status === 'completed').length,
+                declinedBy: declinedStep ? declinedStep.signerName : null,
+                declinedStepOrder: declinedStep ? declinedStep.stepOrder : null
+            };
+        });
+    }
+
+    // Get Single Document (detail view)
+    async getDocument(documentId, initiatorId) {
+        const document = await Document.findByPk(documentId, {
+            include: [{ model: WorkflowStep }]
+        });
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+
+        const steps = (document.WorkflowSteps || [])
+            .slice()
+            .sort((a, b) => a.stepOrder - b.stepOrder);
+
+        return {
+            id: document.id,
+            fileName: document.fileName,
+            status: document.status,
+            version: document.version,
+            resumeCount: document.resumeCount,
+            parentDocumentId: document.parent_document_id,
+            createdAt: document.created_at,
+            updatedAt: document.updated_at,
+            steps: steps.map(step => ({
+                id: step.id,
+                stepOrder: step.stepOrder,
+                signerName: step.signerName,
+                signerEmail: step.signerEmail,
+                status: step.status,
+                declineReason: step.declineReason,
+                declineType: step.declineType,
+                signedAt: step.signedAt
+            }))
+        };
+    }
+
     // Upload Document
     async upload(fileBuffer, originalName, initiatorId) {
         if (!fileBuffer) throw new Error('NO_FILE');
@@ -124,6 +189,7 @@ class DocumentService {
         });
 
         if (!step) throw new Error('INVALID_LINK');
+        if (step.Document.status === 'declined') throw new Error('DOCUMENT_DECLINED');
         if (step.status !== 'pending') throw new Error('ALREADY_SIGNED');
 
         const isInitiator = loggedInEmail && loggedInEmail === step.signerEmail;
@@ -178,6 +244,196 @@ class DocumentService {
             await transaction.rollback();
             throw error;
         }
+    }
+
+    // Decline Signing
+    async declineSigning(token, reason, ipAddress) {
+        const transaction = await sequelize.transaction();
+
+        try {
+            const step = await WorkflowStep.findOne({ where: { accessToken: token }, transaction });
+            if (!step || step.status !== 'pending') throw new Error('INVALID_STATE');
+            if (!reason || !reason.trim()) throw new Error('MISSING_REASON');
+
+            const document = await Document.findByPk(step.document_id, { include: [User], transaction });
+
+            await step.update({ status: 'declined', declineReason: reason }, { transaction });
+            await document.update({ status: 'declined' }, { transaction });
+
+            await AuditLog.create({
+                document_id: document.id,
+                action: `DECLINED: ${reason}`,
+                actorEmail: step.signerEmail,
+                ipAddress: ipAddress
+            }, { transaction });
+
+            await transaction.commit();
+
+            await sendDeclineEmail(document.User.email, document.fileName, step.signerName, reason);
+
+            return { document };
+
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+    }
+
+    // Resume Signing (initiator reopens the declined step, no document edit)
+    async resumeDocument(documentId, initiatorId, initiatorEmail, ipAddress) {
+        const transaction = await sequelize.transaction();
+
+        try {
+            const document = await Document.findByPk(documentId, { transaction });
+            if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+            if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+            if (document.status !== 'declined') throw new Error('INVALID_STATE');
+            if (document.resumeCount >= MAX_RESUMES) throw new Error('RESUME_LIMIT_REACHED');
+
+            const step = await WorkflowStep.findOne({ where: { document_id: documentId, status: 'declined' }, transaction });
+            if (!step) throw new Error('INVALID_STATE');
+
+            const otp = Math.floor(100000 + Math.random() * 900000).toString();
+            const newToken = uuidv4();
+
+            await step.update({
+                status: 'pending',
+                declineType: 'resumable',
+                accessToken: newToken,
+                otpCode: otp,
+                otpExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+            }, { transaction });
+
+            await document.update({ status: 'in_progress', resumeCount: document.resumeCount + 1 }, { transaction });
+
+            await AuditLog.create({
+                document_id: document.id,
+                action: `RESUMED: step ${step.id}`,
+                actorEmail: initiatorEmail,
+                ipAddress: ipAddress
+            }, { transaction });
+
+            await transaction.commit();
+
+            await sendSignatureEmail(step.signerEmail, step.signerName, newToken, document.fileName, otp);
+
+            return { document };
+
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+    }
+
+    // Revise Document (initiator creates a new version, every signer starts over)
+    async reviseDocument(documentId, initiatorId, initiatorEmail, ipAddress, newFileBuffer, newFileName) {
+        const transaction = await sequelize.transaction();
+
+        try {
+            const oldDocument = await Document.findByPk(documentId, { transaction });
+            if (!oldDocument) throw new Error('DOCUMENT_NOT_FOUND');
+            if (oldDocument.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+            if (oldDocument.status !== 'declined') throw new Error('INVALID_STATE');
+
+            const declinedStep = await WorkflowStep.findOne({ where: { document_id: documentId, status: 'declined' }, transaction });
+            if (!declinedStep) throw new Error('INVALID_STATE');
+
+            const oldSteps = await WorkflowStep.findAll({ where: { document_id: documentId }, order: [['stepOrder', 'ASC']], transaction });
+
+            await declinedStep.update({ declineType: 'requires_revision' }, { transaction });
+            await oldDocument.update({ status: 'superseded' }, { transaction });
+
+            const newFileKey = newFileBuffer
+                ? await uploadToR2(newFileBuffer, newFileName || oldDocument.fileName)
+                : oldDocument.originalFilePath;
+
+            const newDocument = await Document.create({
+                initiator_id: initiatorId,
+                fileName: newFileName || oldDocument.fileName,
+                originalFilePath: newFileKey,
+                status: 'pending',
+                parent_document_id: oldDocument.id,
+                version: oldDocument.version + 1
+            }, { transaction });
+
+            const newSteps = [];
+            for (const oldStep of oldSteps) {
+                const newStep = await WorkflowStep.create({
+                    document_id: newDocument.id,
+                    signerEmail: oldStep.signerEmail,
+                    signerName: oldStep.signerName,
+                    stepOrder: oldStep.stepOrder,
+                    status: 'pending',
+                    signatureUiData: oldStep.signatureUiData
+                }, { transaction });
+                newSteps.push(newStep);
+            }
+
+            await AuditLog.create({
+                document_id: oldDocument.id,
+                action: `SUPERSEDED: replaced by ${newDocument.id}`,
+                actorEmail: initiatorEmail,
+                ipAddress: ipAddress
+            }, { transaction });
+
+            await AuditLog.create({
+                document_id: newDocument.id,
+                action: `CREATED_FROM_REVISION: ${oldDocument.id}`,
+                actorEmail: initiatorEmail,
+                ipAddress: ipAddress
+            }, { transaction });
+
+            await transaction.commit();
+
+            const firstStep = newSteps[0];
+            let isInitiatorFirst = false;
+
+            for (const newStep of newSteps) {
+                const isFirst = newStep.id === firstStep.id;
+
+                if (!isFirst) {
+                    // Sequential signing still applies: only the first step is actually
+                    // reachable right now. Everyone else just gets the transparency notice.
+                    await sendRevisionNoticeEmail(newStep.signerEmail, newStep.signerName, newDocument.fileName);
+                    continue;
+                }
+
+                if (newStep.signerEmail === initiatorEmail) {
+                    isInitiatorFirst = true;
+                    console.log(`Initiator is Level 1 on the revision. Skipping email. Token: ${newStep.accessToken}`);
+                    continue;
+                }
+
+                const otp = Math.floor(100000 + Math.random() * 900000).toString();
+                await newStep.update({ otpCode: otp, otpExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) });
+                await sendRevisionEmail(newStep.signerEmail, newStep.signerName, newStep.accessToken, newDocument.fileName, otp);
+            }
+
+            return { document: newDocument, isInitiatorFirst, redirectToken: isInitiatorFirst ? firstStep.accessToken : null };
+
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+    }
+
+    // Void Document (initiator gives up on it)
+    async voidDocument(documentId, initiatorId, initiatorEmail, ipAddress) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+        if (['completed', 'voided', 'superseded'].includes(document.status)) throw new Error('INVALID_STATE');
+
+        await document.update({ status: 'voided' });
+
+        await AuditLog.create({
+            document_id: document.id,
+            action: 'VOIDED',
+            actorEmail: initiatorEmail,
+            ipAddress: ipAddress
+        });
+
+        return { document };
     }
 
     // Trigger Next Step or Finalize
