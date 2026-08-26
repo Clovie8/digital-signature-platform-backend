@@ -290,5 +290,31 @@ const sendReminderEmail = async (signerEmail, signerName, token, documentName, o
     }
 };
 
+const sendExpirationEmail = async (userEmail, documentName) => {
+    try {
+        const mailOptions = {
+            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            to: userEmail,
+            subject: `Document Expired: ${documentName}`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+                    <h2 style="color: #ef4444;">Document Expired</h2>
+                    <p style="color: #555; font-size: 16px;">
+                        The document <strong>${documentName}</strong> has exceeded the time limit for signatures.
+                    </p>
+                    <p style="color: #555; font-size: 16px;">
+                        As a result, this workflow has been automatically voided by the system and the document is no longer accessible. If you still need to complete this agreement, the initiator must dispatch a new document.
+                    </p>
+                </div>
+            `
+        };
+        await transporter.sendMail(mailOptions);
+        return true;
+    } catch (error) {
+        console.error('Expiration Email Error:', error);
+        return false;
+    }
+};
 
-module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendReminderEmail };
+
+module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendReminderEmail, sendExpirationEmail };
