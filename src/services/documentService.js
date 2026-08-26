@@ -1,25 +1,44 @@
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
+const { Op } = require('sequelize');
 const { Document, WorkflowStep, AuditLog, User, sequelize } = require('../models');
 const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2 } = require('../utils/s3Manager');
-const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail } = require('../utils/emailManager');
+const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail } = require('../utils/emailManager');
 const { stampDocument, appendAuditTrail } = require('../utils/pdfManager');
 
 const MAX_RESUMES = 3;
+const REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
 
 class DocumentService {
 
-    // List Documents (initiator's dashboard)
-    async listDocuments(initiatorId) {
-        const documents = await Document.findAll({
-            where: { initiator_id: initiatorId },
-            include: [{ model: WorkflowStep }],
-            order: [['updated_at', 'DESC']]
+    // List Documents (unified inbox: sent by you, or pending on you as a signer)
+    async listDocuments(userId, userEmail) {
+        const sentByYou = await Document.findAll({
+            where: { initiator_id: userId },
+            include: [{ model: WorkflowStep }, { model: User }],
         });
+
+        const pendingOnYou = await Document.findAll({
+            where: { status: { [Op.ne]: 'draft' } },
+            include: [
+                { model: WorkflowStep, where: { signerEmail: userEmail }, required: true },
+                { model: User }
+            ],
+        });
+
+        const byId = new Map();
+        for (const document of [...sentByYou, ...pendingOnYou]) {
+            byId.set(document.id, document);
+        }
+
+        const documents = [...byId.values()].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
 
         return documents.map(document => {
             const steps = document.WorkflowSteps || [];
             const declinedStep = steps.find(s => s.status === 'declined');
+            const orderedPendingSteps = steps
+                .filter(s => s.status === 'pending')
+                .sort((a, b) => a.stepOrder - b.stepOrder);
 
             return {
                 id: document.id,
@@ -32,18 +51,24 @@ class DocumentService {
                 totalSteps: steps.length,
                 signedSteps: steps.filter(s => s.status === 'completed').length,
                 declinedBy: declinedStep ? declinedStep.signerName : null,
-                declinedStepOrder: declinedStep ? declinedStep.stepOrder : null
+                declinedStepOrder: declinedStep ? declinedStep.stepOrder : null,
+                initiatorId: document.initiator_id,
+                initiatorName: document.User ? document.User.name : null,
+                pendingOn: orderedPendingSteps.length ? orderedPendingSteps[0].signerName : null
             };
         });
     }
 
-    // Get Single Document (detail view)
-    async getDocument(documentId, initiatorId) {
+    // Get Single Document (detail view) — accessible to the initiator or any named signer
+    async getDocument(documentId, userId, userEmail) {
         const document = await Document.findByPk(documentId, {
             include: [{ model: WorkflowStep }]
         });
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
-        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+
+        const isInitiator = document.initiator_id === userId;
+        const isParticipant = (document.WorkflowSteps || []).some(s => s.signerEmail === userEmail);
+        if (!isInitiator && !isParticipant) throw new Error('NOT_OWNER');
 
         const steps = (document.WorkflowSteps || [])
             .slice()
@@ -56,6 +81,7 @@ class DocumentService {
             version: document.version,
             resumeCount: document.resumeCount,
             parentDocumentId: document.parent_document_id,
+            initiatorId: document.initiator_id,
             createdAt: document.created_at,
             updatedAt: document.updated_at,
             steps: steps.map(step => ({
@@ -434,6 +460,71 @@ class DocumentService {
         });
 
         return { document };
+    }
+
+    // Send Reminder (initiator manually nudges the current pending signer)
+    async sendReminder(documentId, initiatorId, initiatorEmail, ipAddress) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+        if (!['pending', 'in_progress'].includes(document.status)) throw new Error('INVALID_STATE');
+
+        const pendingStep = await WorkflowStep.findOne({
+            where: { document_id: documentId, status: 'pending' },
+            order: [['stepOrder', 'ASC']]
+        });
+        if (!pendingStep) throw new Error('NO_PENDING_STEP');
+        if (pendingStep.signerEmail === initiatorEmail) throw new Error('SELF_SIGNER');
+
+        if (pendingStep.lastReminderSentAt) {
+            const elapsed = Date.now() - new Date(pendingStep.lastReminderSentAt).getTime();
+            if (elapsed < REMINDER_COOLDOWN_MS) {
+                const minutesRemaining = Math.ceil((REMINDER_COOLDOWN_MS - elapsed) / 60000);
+                const error = new Error('COOLDOWN_ACTIVE');
+                error.minutesRemaining = minutesRemaining;
+                throw error;
+            }
+        }
+
+        let otp = pendingStep.otpCode;
+        const otpExpired = !pendingStep.otpExpiresAt || new Date(pendingStep.otpExpiresAt) <= new Date();
+        const updates = { lastReminderSentAt: new Date() };
+
+        if (!otp || otpExpired) {
+            otp = Math.floor(100000 + Math.random() * 900000).toString();
+            updates.otpCode = otp;
+            updates.otpExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        }
+
+        await pendingStep.update(updates);
+
+        await sendReminderEmail(pendingStep.signerEmail, pendingStep.signerName, pendingStep.accessToken, document.fileName, otp);
+
+        await AuditLog.create({
+            document_id: document.id,
+            action: `REMINDER_SENT: ${pendingStep.signerEmail}`,
+            actorEmail: initiatorEmail,
+            ipAddress: ipAddress
+        });
+
+        return { signerName: pendingStep.signerName };
+    }
+
+    // Get Download URL (initiator or any participant, once the document is finalized)
+    async getDownloadUrl(documentId, userId, userEmail) {
+        const document = await Document.findByPk(documentId, {
+            include: [{ model: WorkflowStep }]
+        });
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+
+        const isInitiator = document.initiator_id === userId;
+        const isParticipant = (document.WorkflowSteps || []).some(s => s.signerEmail === userEmail);
+        if (!isInitiator && !isParticipant) throw new Error('NOT_OWNER');
+
+        if (document.status !== 'completed') throw new Error('INVALID_STATE');
+
+        const url = await getPresignedPdfUrl(document.signedFilePath);
+        return { url, fileName: document.fileName };
     }
 
     // Trigger Next Step or Finalize

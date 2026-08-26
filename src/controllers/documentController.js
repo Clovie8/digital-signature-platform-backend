@@ -5,17 +5,19 @@ const { AppError, NotFoundError, ValidationError, UnauthorizedError } = require(
 require('dotenv').config();
 
 const listDocuments = asyncHandler(async (req, res) => {
-    const initiatorId = req.user.userId;
-    const documents = await documentService.listDocuments(initiatorId);
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const documents = await documentService.listDocuments(userId, userEmail);
     res.status(200).json({ documents });
 });
 
 const getDocument = asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const initiatorId = req.user.userId;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
 
     try {
-        const document = await documentService.getDocument(id, initiatorId);
+        const document = await documentService.getDocument(id, userId, userEmail);
         res.status(200).json({ document });
     } catch (error) {
         if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
@@ -151,10 +153,48 @@ const voidDocument = asyncHandler(async (req, res) => {
     }
 });
 
+const sendReminder = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+    const initiatorEmail = req.user.email;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+
+    try {
+        const { signerName } = await documentService.sendReminder(id, initiatorId, initiatorEmail, ipAddress);
+        res.status(200).json({ message: `Reminder sent to ${signerName}.` });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can send a reminder for this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document is not awaiting a signature right now.');
+        if (error.message === 'NO_PENDING_STEP') throw new ValidationError('No one is currently pending on this document.');
+        if (error.message === 'SELF_SIGNER') throw new ValidationError("It's currently your turn to sign — there's no one to remind.");
+        if (error.message === 'COOLDOWN_ACTIVE') throw new ValidationError(`Please wait ${error.minutesRemaining} more minute(s) before reminding this signer again.`);
+        throw error;
+    }
+});
+
+const downloadDocument = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    try {
+        const { url, fileName } = await documentService.getDownloadUrl(id, userId, userEmail);
+        res.status(200).json({ url, fileName });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document has not been completed yet.');
+        throw error;
+    }
+});
+
 module.exports = {
     listDocuments,
     getDocument,
     voidDocument,
+    sendReminder,
+    downloadDocument,
     uploadDocument,
     dispatchDocument,
     getSigningView,

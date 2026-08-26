@@ -6,6 +6,8 @@ const {
     listDocuments,
     getDocument,
     voidDocument,
+    sendReminder,
+    downloadDocument,
     uploadDocument,
     dispatchDocument,
     getSigningView,
@@ -27,6 +29,8 @@ router.post('/:id/dispatch', authenticateToken, dispatchDocument);
 router.post('/:id/resume', authenticateToken, resumeDocument);
 router.post('/:id/revise', authenticateToken, upload.single('pdf_file'), reviseDocument);
 router.post('/:id/void', authenticateToken, voidDocument);
+router.post('/:id/remind', authenticateToken, sendReminder);
+router.get('/:id/download', authenticateToken, downloadDocument);
 
 // Public Signer Routes (Auth handled via Tokenized Magic Links in URL)
 router.get('/sign/:token', getSigningView);

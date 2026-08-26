@@ -6,9 +6,8 @@ const { sendReminderEmail, sendExpirationEmail } = require('../utils/emailManage
 const startCronJobs = () => {
     console.log('⏳ Cron Jobs Initialized.');
 
-    // This cron expression ('0 8 * * *') runs at 8:00 AM every single day.
-    // For testing we use ('*/2 * * * *') to run every 2 minutes.
-    cron.schedule('*/2 * * * *', async () => {
+    // Runs at 8:00 AM every day.
+    cron.schedule('0 8 * * *', async () => {
         console.log('[Cron] Running daily reminder check...');
 
         try {
