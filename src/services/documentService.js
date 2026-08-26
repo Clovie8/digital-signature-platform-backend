@@ -212,9 +212,23 @@ class DocumentService {
         const transaction = await sequelize.transaction();
 
         try {
-            const step = await WorkflowStep.findOne({ where: { accessToken: token }, transaction });
-            if (!step || step.status !== 'pending') throw new Error('INVALID_STATE');
+            // Add the lock to the Query
+            const step = await WorkflowStep.findOne({ where: { accessToken: token }, transaction, lock: transaction.LOCK.UPDATE });
             
+            if (!step) throw new Error('INVALID_STATE');
+
+            // Add the Graceful double-click Reject
+            if (step.status === 'completed') {
+                console.log(`[Concurrency] Blocked duplicate signature attempt for token: ${token}`);
+                await transaction.rollback();
+
+                // Return gracefully so the frontend simply closes the loading screen without crashing
+                return { step, document: await Document.findByPk(step.document_id)};
+            }
+
+            if (step.status !== 'pending') throw new Error('INVALID_STATE');
+
+
             const document = await Document.findByPk(step.document_id, { transaction });
 
             const targetFileKey = document.signedFilePath || document.originalFilePath;
