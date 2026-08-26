@@ -6,7 +6,9 @@ const {
     uploadDocument, 
     dispatchDocument, 
     getSigningView, 
-    completeSigning 
+    completeSigning,
+    listDocuments,
+    listPendingApprovals
 } = require('../controllers/documentController');
 
 const authenticateToken = require('../middleware/authMiddleware');
@@ -14,6 +16,8 @@ const authenticateToken = require('../middleware/authMiddleware');
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Protected Creator Routes
+router.get('/', authenticateToken, listDocuments);
+router.get('/pending-approvals', authenticateToken, listPendingApprovals);
 router.post('/upload', authenticateToken, upload.single('pdf_file'), uploadDocument);
 router.post('/:id/dispatch', authenticateToken, dispatchDocument);
 

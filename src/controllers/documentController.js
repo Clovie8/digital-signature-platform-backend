@@ -25,6 +25,17 @@ const dispatchDocument = asyncHandler(async (req, res) => {
     res.status(200).json({ message: 'Document dispatched.', ...result });
 });
 
+const listDocuments = asyncHandler(async (req, res) => {
+    const userId = req.user.userId;
+    const data = await documentService.listDocuments(userId);
+    res.status(200).json(data);
+});
+
+const listPendingApprovals = asyncHandler(async (req, res) => {
+    const email = req.user.email;
+    const pending = await documentService.listPendingForSigner(email);
+    res.status(200).json(pending);
+});
 const getSigningView = asyncHandler(async (req, res) => {
     const { token } = req.params;
     const { otp } = req.query; 
@@ -65,5 +76,7 @@ module.exports = {
     uploadDocument,
     dispatchDocument,
     getSigningView,
-    completeSigning
+    completeSigning,
+    listDocuments,
+    listPendingApprovals
 };

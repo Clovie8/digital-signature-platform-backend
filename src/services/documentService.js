@@ -24,6 +24,47 @@ class DocumentService {
         return document;
     }
 
+           async listDocuments(initiatorId) {
+        const documents = await Document.findAll({
+            where: { initiator_id: initiatorId },
+            order: [['created_at', 'DESC']]
+        });
+
+        const stats = {
+            total: documents.length,
+            completed: documents.filter(doc => doc.status === 'completed').length,
+            pending: documents.filter(doc => doc.status === 'pending').length,
+            draft: documents.filter(doc => doc.status === 'draft').length
+        };
+
+        return { documents, stats };
+    }
+
+    async listPendingForSigner(email) {
+        const steps = await WorkflowStep.findAll({
+            where: { signerEmail: email, status: 'pending' },
+            include: [{ model: Document }],
+            order: [['stepOrder', 'ASC']]
+        });
+        return steps.map(step => ({
+            stepId: step.id,
+            documentId: step.document_id,
+            documentName: step.Document.fileName,
+            stepOrder: step.stepOrder,
+            accessToken: step.accessToken,
+        }));
+    
+    
+
+        const stats = {
+            total: documents.length,
+            completed: documents.filter(doc => doc.status === 'completed').length, 
+            pending: documents.filter(doc => doc.status === 'pending').length,
+            draft: documents.filter(doc => doc.status === 'draft').length
+        }
+        return { documents, stats };
+    }
+
     // Dispatch Document Workflow
     async dispatch(documentId, signers, fields, initiatorEmail, ipAddress) {
         // Use a Sequelize Transaction to ensure atomicity
