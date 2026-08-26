@@ -11,6 +11,19 @@ const listDocuments = asyncHandler(async (req, res) => {
     res.status(200).json({ documents });
 });
 
+const listPendingApprovals = asyncHandler(async (req, res) => {
+    const userEmail = req.user.email;
+    const pending = await documentService.listPendingForSigner(userEmail);
+    res.status(200).json({ pending });
+});
+
+const getDashboardSummary = asyncHandler(async (req, res) => {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const summary = await documentService.getDashboardSummary(userId, userEmail);
+    res.status(200).json(summary);
+});
+
 const getDocument = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user.userId;
@@ -191,6 +204,8 @@ const downloadDocument = asyncHandler(async (req, res) => {
 
 module.exports = {
     listDocuments,
+    listPendingApprovals,
+    getDashboardSummary,
     getDocument,
     voidDocument,
     sendReminder,

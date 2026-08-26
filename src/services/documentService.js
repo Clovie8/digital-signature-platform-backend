@@ -59,6 +59,107 @@ class DocumentService {
         });
     }
 
+    // List Pending Approvals (steps waiting on this signer specifically)
+    async listPendingForSigner(email) {
+        const steps = await WorkflowStep.findAll({
+            where: { signerEmail: email, status: 'pending' },
+            include: [{ model: Document }],
+            order: [['stepOrder', 'ASC']]
+        });
+        return steps
+            .filter(step => step.Document && step.Document.status !== 'draft')
+            .map(step => ({
+                stepId: step.id,
+                documentId: step.document_id,
+                documentName: step.Document.fileName,
+                stepOrder: step.stepOrder,
+                accessToken: step.accessToken
+            }));
+    }
+
+    // Dashboard Summary (stats + recent activity for the overview page)
+    async getDashboardSummary(userId, userEmail) {
+        const user = await User.findByPk(userId, { attributes: ['name'] });
+        const documents = await this.listDocuments(userId, userEmail);
+
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+
+        const myInitiated = documents.filter(d => d.initiatorId === userId);
+        const waitingOnYou = await this.listPendingForSigner(userEmail);
+
+        const inProgressDocs = myInitiated.filter(d => ['pending', 'in_progress'].includes(d.status));
+        const completedThisMonth = myInitiated.filter(d => d.status === 'completed' && new Date(d.updatedAt) >= startOfMonth);
+        const overdueDocs = inProgressDocs.filter(d => new Date(d.createdAt) < fiveDaysAgo);
+
+        const statusBreakdown = {
+            awaitingSignature: myInitiated.filter(d => d.status === 'pending').length,
+            inProgress: myInitiated.filter(d => d.status === 'in_progress').length,
+            completed: myInitiated.filter(d => d.status === 'completed').length,
+            voidedRejected: myInitiated.filter(d => ['voided', 'declined'].includes(d.status)).length
+        };
+
+        const completedDocs = myInitiated.filter(d => d.status === 'completed');
+        const weeks = [];
+        for (let i = 5; i >= 0; i--) {
+            const weekStart = new Date(now.getTime() - i * 7 * 24 * 60 * 60 * 1000);
+            weekStart.setHours(0, 0, 0, 0);
+            const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+            const count = completedDocs.filter(d => {
+                const t = new Date(d.updatedAt);
+                return t >= weekStart && t < weekEnd;
+            }).length;
+            weeks.push({ week: `Wk ${6 - i}`, value: count });
+        }
+
+        const needsAttention = waitingOnYou.map(item => ({
+            id: item.stepId,
+            title: item.documentName,
+            detail: `Step ${item.stepOrder}`,
+            accessToken: item.accessToken
+        }));
+
+        const myDocIds = myInitiated.map(d => d.id);
+        const recentLogs = await AuditLog.findAll({
+            where: { document_id: { [Op.in]: myDocIds } },
+            order: [['created_at', 'DESC']],
+            limit: 5
+        });
+        const recentActivity = await Promise.all(recentLogs.map(async (log) => {
+            const doc = await Document.findByPk(log.document_id);
+            return {
+                id: log.id,
+                action: log.action,
+                actorEmail: log.actorEmail,
+                documentName: doc ? doc.fileName : 'Untitled document',
+                createdAt: log.created_at
+            };
+        }));
+
+        const documentsInProgress = inProgressDocs.slice(0, 10).map(d => ({
+            id: d.id,
+            title: d.fileName,
+            detail: `Step ${d.signedSteps + 1} of ${d.totalSteps} · waiting on ${d.pendingOn || '—'}`,
+            status: d.status
+        }));
+
+        return {
+            userName: user ? user.name : '',
+            stats: {
+                waitingOnYou: waitingOnYou.length,
+                inProgress: inProgressDocs.length,
+                completedThisMonth: completedThisMonth.length,
+                overdue: overdueDocs.length
+            },
+            statusBreakdown,
+            completedPerWeek: weeks,
+            needsAttention,
+            recentActivity,
+            documentsInProgress
+        };
+    }
+
     // Get Single Document (detail view) — accessible to the initiator or any named signer
     async getDocument(documentId, userId, userEmail) {
         const document = await Document.findByPk(documentId, {
