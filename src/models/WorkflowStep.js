@@ -36,6 +36,7 @@ const WorkflowStep = sequelize.define('WorkflowStep', {
     otpExpiresAt: DataTypes.DATE,
     declineReason: DataTypes.TEXT,
     declineType: DataTypes.ENUM('resumable', 'requires_revision'),
+    lastReminderSentAt: DataTypes.DATE,
 }, {
     tableName: 'workflow_steps',
     underscored: true,
