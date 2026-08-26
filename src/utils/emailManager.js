@@ -256,4 +256,39 @@ const sendAutoVoidEmail = async (initiatorEmail, documentName) => {
     }
 };
 
-module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail };
+const sendReminderEmail = async (signerEmail, signerName, token, documentName, otp) => {
+    try {
+        const secureLink = `${process.env.FRONTEND_URL}/sign/${token}?otp=${otp}`;
+
+        const mailOptions = {
+            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            to: signerEmail,
+            subject: `Reminder: Action Required for ${documentName}`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+                    <h2 style="color: #d97706;">Action Required: Signature Reminder</h2>
+                    <p style="color: #555; font-size: 16px;">
+                        Hello ${signerName},
+                    </p>
+                    <p style="color: #555; font-size: 16px;">
+                        This is an automated reminder that you have a pending request to review and digitally sign <strong>${documentName}</strong>. 
+                        Please complete this at your earliest convenience to avoid workflow expiration.
+                    </p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="${secureLink}" style="background-color: #d97706; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">
+                            Review and Sign Document
+                        </a>
+                    </div>
+                </div>
+            `
+        };
+
+        await transporter.sendMail(mailOptions);
+        console.log(`[Cron] Reminder emailed to ${signerEmail}`);
+    } catch (error) {
+        console.error('Reminder Email Dispatch Error:', error);
+    }
+};
+
+
+module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendReminderEmail };
