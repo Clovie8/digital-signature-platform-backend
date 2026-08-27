@@ -13,25 +13,29 @@ class DocumentService {
 
     // List Documents (unified inbox: sent by you, or pending on you as a signer)
     async listDocuments(userId, userEmail) {
-        const sentByYou = await Document.findAll({
+        // Step 1: figure out which document ids the user should see at all.
+        const sentByYouIds = await Document.findAll({
             where: { initiator_id: userId },
-            include: [{ model: WorkflowStep }, { model: User }],
+            attributes: ['id']
         });
 
-        const pendingOnYou = await Document.findAll({
+        const pendingOnYouIds = await Document.findAll({
             where: { status: { [Op.ne]: 'draft' } },
-            include: [
-                { model: WorkflowStep, where: { signerEmail: userEmail }, required: true },
-                { model: User }
-            ],
+            attributes: ['id'],
+            include: [{ model: WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
         });
 
-        const byId = new Map();
-        for (const document of [...sentByYou, ...pendingOnYou]) {
-            byId.set(document.id, document);
-        }
+        const documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
+        if (documentIds.length === 0) return [];
 
-        const documents = [...byId.values()].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+        // Step 2: fetch those documents with every step fully loaded (unfiltered),
+        // so totalSteps/signedSteps/pendingOn are computed from the whole picture,
+        // not just the rows that happened to match the membership query above.
+        const documents = await Document.findAll({
+            where: { id: { [Op.in]: documentIds } },
+            include: [{ model: WorkflowStep }, { model: User }],
+            order: [['updated_at', 'DESC']]
+        });
 
         return documents.map(document => {
             const steps = document.WorkflowSteps || [];
@@ -196,6 +200,48 @@ class DocumentService {
                 signedAt: step.signedAt
             }))
         };
+    }
+
+    // Get Version History (walks the parent_document_id chain both directions)
+    async getVersionHistory(documentId, userId, userEmail) {
+        const document = await Document.findByPk(documentId, {
+            include: [{ model: WorkflowStep }]
+        });
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+
+        const isInitiator = document.initiator_id === userId;
+        const isParticipant = (document.WorkflowSteps || []).some(s => s.signerEmail === userEmail);
+        if (!isInitiator && !isParticipant) throw new Error('NOT_OWNER');
+
+        // Walk backward to find the root (v1).
+        let root = document;
+        while (root.parent_document_id) {
+            root = await Document.findByPk(root.parent_document_id);
+        }
+
+        // Walk forward from the root, collecting every version in order.
+        const chain = [];
+        let current = root;
+        while (current) {
+            const declinedStep = await WorkflowStep.findOne({
+                where: { document_id: current.id, status: 'declined' }
+            });
+
+            chain.push({
+                id: current.id,
+                version: current.version,
+                status: current.status,
+                fileName: current.fileName,
+                createdAt: current.created_at,
+                updatedAt: current.updated_at,
+                declinedBy: declinedStep ? declinedStep.signerName : null,
+                declineReason: declinedStep ? declinedStep.declineReason : null
+            });
+
+            current = await Document.findOne({ where: { parent_document_id: current.id } });
+        }
+
+        return chain;
     }
 
     // Upload Document
@@ -640,6 +686,40 @@ class DocumentService {
 
         const url = await getPresignedPdfUrl(document.signedFilePath);
         return { url, fileName: document.fileName };
+    }
+
+    // Get Draft File (initiator only, for resuming the upload wizard)
+    async getDraftFile(documentId, initiatorId) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+
+        const url = await getPresignedPdfUrl(document.originalFilePath);
+        return { url, fileName: document.fileName, draftConfig: document.draftConfig || null };
+    }
+
+    // Save Draft Config (signers + field placements chosen so far, before dispatch)
+    async saveDraftConfig(documentId, initiatorId, draftConfig) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+        if (document.status !== 'draft') throw new Error('INVALID_STATE');
+
+        await document.update({ draftConfig });
+        return document;
+    }
+
+    // Replace Draft File (initiator only, only while still a draft)
+    async replaceDraftFile(documentId, initiatorId, fileBuffer, originalName) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+        if (document.status !== 'draft') throw new Error('INVALID_STATE');
+
+        const fileKey = await uploadToR2(fileBuffer, originalName);
+        await document.update({ originalFilePath: fileKey, fileName: originalName });
+
+        return document;
     }
 
     // Trigger Next Step or Finalize

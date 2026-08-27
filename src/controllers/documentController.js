@@ -39,6 +39,21 @@ const getDocument = asyncHandler(async (req, res) => {
     }
 });
 
+const getVersionHistory = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    try {
+        const versions = await documentService.getVersionHistory(id, userId, userEmail);
+        res.status(200).json({ versions });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
+        throw error;
+    }
+});
+
 const uploadDocument = asyncHandler(async (req, res) => {
     try {
         const initiatorId = req.user.userId;
@@ -202,14 +217,65 @@ const downloadDocument = asyncHandler(async (req, res) => {
     }
 });
 
+const getDraftFile = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+
+    try {
+        const { url, fileName, draftConfig } = await documentService.getDraftFile(id, initiatorId);
+        res.status(200).json({ url, fileName, draftConfig });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
+        throw error;
+    }
+});
+
+const saveDraftConfig = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+    const { signers, fields, isInitiatorFirst, currentStep } = req.body;
+
+    try {
+        await documentService.saveDraftConfig(id, initiatorId, { signers, fields, isInitiatorFirst, currentStep });
+        res.status(200).json({ message: 'Draft saved.' });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document is no longer a draft.');
+        throw error;
+    }
+});
+
+const replaceDraftFile = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+
+    if (!req.file) throw new ValidationError('No PDF file uploaded.');
+
+    try {
+        const document = await documentService.replaceDraftFile(id, initiatorId, req.file.buffer, req.file.originalname);
+        res.status(200).json({ message: 'File replaced.', document });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document can no longer have its file replaced.');
+        throw error;
+    }
+});
+
 module.exports = {
     listDocuments,
     listPendingApprovals,
     getDashboardSummary,
     getDocument,
+    getVersionHistory,
     voidDocument,
     sendReminder,
     downloadDocument,
+    getDraftFile,
+    saveDraftConfig,
+    replaceDraftFile,
     uploadDocument,
     dispatchDocument,
     getSigningView,
