@@ -62,7 +62,7 @@ const PORT = process.env.PORT || 5000;
 
 const { startCronJobs } = require('./services/cronService'); // Import cronService
 
-sequelize.authenticate()
+sequelize.sync({ alter: true })
     .then(() => {
         console.log('Database connected via Sequelize!');
 
