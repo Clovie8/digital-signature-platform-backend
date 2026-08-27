@@ -4,6 +4,8 @@ const multer = require('multer');
 
 const {
     listDocuments,
+    listPendingApprovals,
+    getDashboardSummary,
     getDocument,
     voidDocument,
     sendReminder,
@@ -21,8 +23,10 @@ const authenticateToken = require('../middleware/authMiddleware');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Protected Creator Routes
+// Protected Creator Routes — specific paths BEFORE /:id
 router.get('/', authenticateToken, listDocuments);
+router.get('/pending-approvals', authenticateToken, listPendingApprovals);
+router.get('/dashboard-summary', authenticateToken, getDashboardSummary);
 router.get('/:id', authenticateToken, getDocument);
 router.post('/upload', authenticateToken, upload.single('pdf_file'), uploadDocument);
 router.post('/:id/dispatch', authenticateToken, dispatchDocument);
