@@ -31,6 +31,7 @@ const Document = sequelize.define('Document', {
         defaultValue: 0,
     },
     declineWarningSentAt: DataTypes.DATE,
+    draftConfig: DataTypes.JSONB,
 }, {
     tableName: 'documents',
     underscored: true,
