@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { Op } = require('sequelize');
-const { Document, WorkflowStep, AuditLog, User, sequelize } = require('../models');
+const { Document, WorkflowStep, AuditLog, User, Signature, sequelize } = require('../models');
 const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2 } = require('../utils/s3Manager');
 const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail } = require('../utils/emailManager');
 const { stampDocument, appendAuditTrail } = require('../utils/pdfManager');
@@ -347,10 +347,29 @@ class DocumentService {
         }
 
         const securePdfUrl = await getPresignedPdfUrl(targetFileKey);
+        
+        //Fetch any saved signatures for this email ---
+        const savedSignatures = await Signature.findAll({
+            where: { signer_email: step.signerEmail },
+            attributes: ['id', 'signature_url']
+        });
+
+        //Convert private R2 keys into secure, temporary image URLs ---
+        const secureSavedSignatures = await Promise.all(
+            savedSignatures.map(async (sig) => {
+                return {
+                    id: sig.id,
+                    originalKey: sig.signature_url, // Sent back to the server upon adoption
+                    displayUrl: await getPresignedPdfUrl(sig.signature_url) // Used strictly for frontend display
+                };
+            })
+        );
+        
         return {
             pdfUrl: securePdfUrl,
             signer: { id: step.id, name: step.signerName, email: step.signerEmail },
-            fields: step.signatureUiData || []
+            fields: step.signatureUiData || [],
+            savedSignatures: secureSavedSignatures
         };
     }
 
@@ -413,7 +432,7 @@ class DocumentService {
             const stepHash = crypto.createHash('sha256').update(stampedBuffer).digest('hex');
             const newFileKey = await uploadBufferToR2(stampedBuffer, document.fileName);
 
-            await step.update({ status: 'completed', signedAt: new Date(), stepHash }, { transaction });
+            await step.update({ status: 'completed', signedAt: new Date(), stepHash, signatureUiData: fieldsToStamp }, { transaction });
             await document.update({ signedFilePath: newFileKey, currentHash: stepHash }, { transaction });
 
             await AuditLog.create({
