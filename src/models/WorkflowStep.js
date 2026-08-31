@@ -21,7 +21,7 @@ const WorkflowStep = sequelize.define('WorkflowStep', {
         allowNull: false,
     },
     status: {
-        type: DataTypes.ENUM('pending', 'completed', 'declined'),
+        type: DataTypes.ENUM('pending', 'completed', 'declined', 'voided'),
         defaultValue: 'pending',
     },
     signatureUiData: DataTypes.JSONB,

@@ -256,6 +256,30 @@ const sendAutoVoidEmail = async (initiatorEmail, documentName) => {
     }
 };
 
+const sendVoidNotificationEmail = async (signerEmail, signerName, documentName) => {
+    try {
+        const mailOptions = {
+            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            to: signerEmail,
+            subject: `Voided: ${documentName}`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+                    <h2 style="color: #b91c1c;">Document Voided</h2>
+                    <p style="color: #555; font-size: 16px;">
+                        Hello ${signerName}, the sender has voided <strong>${documentName}</strong>. No further action is needed from you, and any previous signing link for it is no longer valid.
+                    </p>
+                </div>
+            `
+        };
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`Void notification sent to ${signerEmail}: ${info.messageId}`);
+        return true;
+    } catch (error) {
+        console.error('Void Notification Email Error:', error);
+        return false;
+    }
+};
+
 const sendReminderEmail = async (signerEmail, signerName, token, documentName, otp) => {
     try {
         const secureLink = `${process.env.FRONTEND_URL}/sign/${token}?otp=${otp}`;
@@ -317,4 +341,4 @@ const sendExpirationEmail = async (userEmail, documentName) => {
 };
 
 
-module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendReminderEmail, sendExpirationEmail };
+module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail };

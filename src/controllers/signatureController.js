@@ -2,7 +2,7 @@ const signatureService = require('../services/signatureService');
 const asyncHandler = require('../utils/asyncHandler');
 const { AppError, NotFoundError, ValidationError, UnauthorizedError } = require('../utils/errors');
 const { Signature } = require('../models');
-const { uploadImageToR2, deleteFileFromR2 } = require('../utils/s3Manager'); 
+const { uploadImageToR2, deleteFromR2 } = require('../utils/s3Manager'); 
 const crypto = require('crypto');
 
 const submitSignature = asyncHandler(async (req, res) => {
@@ -57,7 +57,7 @@ const deleteSavedSignature = asyncHandler(async (req, res) => {
     const signature = await Signature.findByPk(id);
     if (!signature) throw new NotFoundError('Signature not found.');
 
-    await deleteFileFromR2(signature.signature_url);
+    await deleteFromR2(signature.signature_url);
 
     await signature.destroy();
 

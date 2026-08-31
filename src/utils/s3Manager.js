@@ -77,7 +77,6 @@ const uploadBufferToR2 = async (buffer, originalName, mimeType = 'application/pd
     return fileKey;
 };
 
-
 const uploadImageToR2 = async (fileBuffer, exactFileKey) => {
     const params = {
         Bucket: process.env.R2_BUCKET_NAME,
@@ -92,12 +91,18 @@ const uploadImageToR2 = async (fileBuffer, exactFileKey) => {
     return exactFileKey;
 };
 
-const deleteFileFromR2 = async (fileKey) => {
-    const command = new DeleteObjectCommand({
-        Bucket: process.env.R2_BUCKET_NAME,
-        Key: fileKey,
-    });
-    await s3.send(command);
+const deleteFromR2 = async (fileKey) => {
+    if (!fileKey) return;
+    try {
+        const command = new DeleteObjectCommand({
+            Bucket: process.env.R2_BUCKET_NAME,
+            Key: fileKey,
+        });
+        await s3.send(command);
+    } catch (error) {
+        console.error('R2 Delete Error:', error);
+        throw new Error('Failed to delete file from Cloudflare R2');
+    }
 };
 
-module.exports = { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, uploadImageToR2, deleteFileFromR2 };
+module.exports = { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, uploadImageToR2, deleteFromR2 };
