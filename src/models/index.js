@@ -5,6 +5,7 @@ const User = require('./User');
 const Document = require('./Document');
 const WorkflowStep = require('./WorkflowStep');
 const AuditLog = require('./AuditLog');
+const Signature = require('./Signature');
 
 // Define Relationships (Associations)
 
@@ -24,11 +25,16 @@ WorkflowStep.belongsTo(Document, { foreignKey: 'document_id' });
 Document.hasMany(AuditLog, { foreignKey: 'document_id', onDelete: 'CASCADE' });
 AuditLog.belongsTo(Document, { foreignKey: 'document_id' });
 
+// User <-> Signature
+User.hasMany(Signature, { foreignKey: 'user_id' });
+Signature.belongsTo(User, { foreignKey: 'user_id' });
+
 // Export everything as a centralized module
 module.exports = {
     sequelize,
     User,
     Document,
     WorkflowStep,
-    AuditLog
+    AuditLog, 
+    Signature
 };

@@ -77,6 +77,20 @@ const uploadBufferToR2 = async (buffer, originalName, mimeType = 'application/pd
     return fileKey;
 };
 
+const uploadImageToR2 = async (fileBuffer, exactFileKey) => {
+    const params = {
+        Bucket: process.env.R2_BUCKET_NAME,
+        Key: exactFileKey, 
+        Body: fileBuffer,
+        ContentType: 'image/png'
+    };
+    
+    const command = new PutObjectCommand(params);
+    await s3.send(command);
+    
+    return exactFileKey;
+};
+
 const deleteFromR2 = async (fileKey) => {
     if (!fileKey) return;
     try {
@@ -91,4 +105,4 @@ const deleteFromR2 = async (fileKey) => {
     }
 };
 
-module.exports = { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, deleteFromR2 };
+module.exports = { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, uploadImageToR2, deleteFromR2 };
