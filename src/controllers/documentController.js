@@ -94,6 +94,7 @@ const getSigningView = asyncHandler(async (req, res) => {
     } catch (error) {
         if (error.message === 'INVALID_LINK') throw new NotFoundError('Invalid or expired signing link.');
         if (error.message === 'DOCUMENT_DECLINED') throw new ValidationError('This document was declined and is no longer available for signing.');
+        if (error.message === 'DOCUMENT_VOIDED') throw new ValidationError('This document was voided and is no longer available for signing.');
         if (error.message === 'ALREADY_SIGNED') throw new ValidationError('This document has already been signed or voided by this user.');
         if (error.message === 'INTEGRITY_COMPROMISED') throw new ValidationError('Document Integrity Compromised.');
         throw error;
@@ -171,8 +172,8 @@ const voidDocument = asyncHandler(async (req, res) => {
     const ipAddress = req.ip || req.connection.remoteAddress;
 
     try {
-        const { document } = await documentService.voidDocument(id, initiatorId, initiatorEmail, ipAddress);
-        res.status(200).json({ message: 'Document voided.', document });
+        const { document, deleted } = await documentService.voidDocument(id, initiatorId, initiatorEmail, ipAddress);
+        res.status(200).json({ message: deleted ? 'Draft deleted successfully.' : 'Document voided successfully.', document });
     } catch (error) {
         if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
         if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can void this document.');

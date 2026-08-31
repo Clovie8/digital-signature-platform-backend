@@ -2,8 +2,8 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { Op } = require('sequelize');
 const { Document, WorkflowStep, AuditLog, User, sequelize } = require('../models');
-const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2 } = require('../utils/s3Manager');
-const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail } = require('../utils/emailManager');
+const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, deleteFromR2 } = require('../utils/s3Manager');
+const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail, sendVoidNotificationEmail } = require('../utils/emailManager');
 const { stampDocument, appendAuditTrail } = require('../utils/pdfManager');
 
 const MAX_RESUMES = 3;
@@ -363,6 +363,7 @@ class DocumentService {
 
         if (!step) throw new Error('INVALID_LINK');
         if (step.Document.status === 'declined') throw new Error('DOCUMENT_DECLINED');
+        if (step.Document.status === 'voided') throw new Error('DOCUMENT_VOIDED');
         if (step.status !== 'pending') throw new Error('ALREADY_SIGNED');
 
         const isInitiator = loggedInEmail && loggedInEmail === step.signerEmail;
@@ -606,19 +607,56 @@ class DocumentService {
 
     // Void Document (initiator gives up on it)
     async voidDocument(documentId, initiatorId, initiatorEmail, ipAddress) {
+        const VOIDABLE_STATUSES = ['draft', 'pending', 'in_progress', 'declined'];
+
         const document = await Document.findByPk(documentId);
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
         if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
-        if (['completed', 'voided', 'superseded'].includes(document.status)) throw new Error('INVALID_STATE');
+        if (!VOIDABLE_STATUSES.includes(document.status)) throw new Error('INVALID_STATE');
 
-        await document.update({ status: 'voided' });
+        const isDraft = document.status === 'draft';
 
-        await AuditLog.create({
-            document_id: document.id,
-            action: 'VOIDED',
-            actorEmail: initiatorEmail,
-            ipAddress: ipAddress
-        });
+        if (isDraft) {
+            // A draft has no dispatch history worth keeping — this is a real delete,
+            // not a void: drop the file and the record itself, nothing to preserve.
+            await deleteFromR2(document.originalFilePath);
+            await document.destroy();
+            return { document, deleted: true };
+        }
+
+        const transaction = await sequelize.transaction();
+        let stepsToNotify = [];
+
+        try {
+            // Cancel the routing queue: nothing still pending should remain reachable.
+            stepsToNotify = await WorkflowStep.findAll({
+                where: { document_id: documentId, status: 'pending' },
+                transaction
+            });
+
+            await WorkflowStep.update(
+                { status: 'voided', otpCode: null, otpExpiresAt: null },
+                { where: { document_id: documentId, status: 'pending' }, transaction }
+            );
+
+            await document.update({ status: 'voided' }, { transaction });
+
+            await AuditLog.create({
+                document_id: document.id,
+                action: 'VOIDED',
+                actorEmail: initiatorEmail,
+                ipAddress: ipAddress
+            }, { transaction });
+
+            await transaction.commit();
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+
+        for (const step of stepsToNotify) {
+            await sendVoidNotificationEmail(step.signerEmail, step.signerName, document.fileName);
+        }
 
         return { document };
     }
