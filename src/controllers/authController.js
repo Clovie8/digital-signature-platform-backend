@@ -1,6 +1,7 @@
 const authService = require('../services/authService');
 const asyncHandler = require('../utils/asyncHandler');
 const { AppError, NotFoundError, ValidationError, UnauthorizedError } = require('../utils/errors');
+const { AuditLog } = require('../models');
 require('dotenv').config();
 
 const registerUser = asyncHandler(async (req, res) => {
@@ -77,14 +78,21 @@ const resendVerification = asyncHandler(async (req, res) => {
     }
 });
 
-const logoutUser = (req, res) => {
+const logoutUser = asyncHandler(async (req, res) => {
+    if (req.user?.email) {
+        AuditLog.create({
+            action: 'USER_LOGOUT',
+            actorEmail: req.user.email
+        }).catch(err => console.error('Failed to write logout audit log:', err));
+    }
+
     res.clearCookie('token', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict'
     });
     res.status(200).json({ message: 'Logged out successfully' });
-};
+});
 
 const getUserProfile = asyncHandler(async (req, res) => {
     try {
