@@ -20,6 +20,10 @@ const User = sequelize.define('User', {
         type: DataTypes.STRING,
         allowNull: false,
     },
+    role: {
+        type: DataTypes.ENUM('user', 'admin'),
+        defaultValue: 'user',
+    },
     isVerified: {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
@@ -29,8 +33,8 @@ const User = sequelize.define('User', {
     resetPasswordExpiresAt: DataTypes.DATE,
 }, {
     tableName: 'users',
-    underscored: true, // Automatically converts camelCase to snake_case for DB columns
-    timestamps: true,  // Automatically manages created_at and updated_at
+    underscored: true, 
+    timestamps: true, 
     createdAt: 'created_at',
     updatedAt: 'updated_at'
 });

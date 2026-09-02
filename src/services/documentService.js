@@ -12,20 +12,28 @@ const REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
 class DocumentService {
 
     // List Documents (unified inbox: sent by you, or pending on you as a signer)
-    async listDocuments(userId, userEmail) {
-        // Step 1: figure out which document ids the user should see at all.
-        const sentByYouIds = await Document.findAll({
-            where: { initiator_id: userId },
-            attributes: ['id']
-        });
+        async listDocuments(userId, userEmail, isAdmin = false) {
+        let documentIds;
 
-        const pendingOnYouIds = await Document.findAll({
-            where: { status: { [Op.ne]: 'draft' } },
-            attributes: ['id'],
-            include: [{ model: WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
-        });
+        if (isAdmin) {
+            const allDocs = await Document.findAll({ attributes: ['id'] });
+            documentIds = allDocs.map(d => d.id);
+        } else {
+            // Step 1: figure out which document ids the user should see at all.
+            const sentByYouIds = await Document.findAll({
+                where: { initiator_id: userId },
+                attributes: ['id']
+            });
 
-        const documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
+            const pendingOnYouIds = await Document.findAll({
+                where: { status: { [Op.ne]: 'draft' } },
+                attributes: ['id'],
+                include: [{ model: WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
+            });
+
+            documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
+        }
+
         if (documentIds.length === 0) return [];
 
         // Step 2: fetch those documents with every step fully loaded (unfiltered),
@@ -165,21 +173,23 @@ class DocumentService {
     }
 
     // Get Single Document (detail view) — accessible to the initiator or any named signer
-    async getDocument(documentId, userId, userEmail) {
+        async getDocument(documentId, userId, userEmail, isAdmin = false) {
         const document = await Document.findByPk(documentId, {
             include: [{ model: WorkflowStep }]
         });
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
 
-        const isInitiator = document.initiator_id === userId;
-        const isParticipant = (document.WorkflowSteps || []).some(s => s.signerEmail === userEmail);
-        if (!isInitiator && !isParticipant) throw new Error('NOT_OWNER');
+        if (!isAdmin) {
+            const isInitiator = document.initiator_id === userId;
+            const isParticipant = (document.WorkflowSteps || []).some(s => s.signerEmail === userEmail);
+            if (!isInitiator && !isParticipant) throw new Error('NOT_OWNER');
+        }
 
         const steps = (document.WorkflowSteps || [])
             .slice()
             .sort((a, b) => a.stepOrder - b.stepOrder);
 
-        return {
+        const result = {
             id: document.id,
             fileName: document.fileName,
             status: document.status,
@@ -200,6 +210,22 @@ class DocumentService {
                 signedAt: step.signedAt
             }))
         };
+
+        if (isAdmin) {
+            const auditLogs = await AuditLog.findAll({
+                where: { document_id: documentId },
+                order: [['created_at', 'ASC']]
+            });
+            result.auditLog = auditLogs.map(log => ({
+                id: log.id,
+                action: log.action,
+                actorEmail: log.actorEmail,
+                ipAddress: log.ipAddress,
+                createdAt: log.created_at
+            }));
+        }
+
+        return result;
     }
 
     // Get Version History (walks the parent_document_id chain both directions)

@@ -1,7 +1,7 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { User } = require('../models'); // Import Sequelize User model
+const { User, AuditLog } = require('../models'); // Import Sequelize User model
 const { sendPasswordResetEmail, sendVerificationEmail } = require('../utils/emailManager');
 const { Op } = require('sequelize');
 require('dotenv').config();
@@ -56,12 +56,18 @@ class AuthService {
 
         // Generate JWT Token
         const token = jwt.sign(
-            { userId: user.id, email: user.email },
+            { userId: user.id, email: user.email, role: user.role },
             process.env.JWT_SECRET,
             { expiresIn: '24h' }
         );
 
-        return { token, user: { id: user.id, name: user.name, email: user.email } };
+        // Record the login event for the audit trail
+        AuditLog.create({
+            action: 'USER_LOGIN',
+            actorEmail: user.email
+        }).catch(err => console.error('Failed to write login audit log:', err));
+
+        return { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
     }
 
     async requestPasswordReset(email) {
@@ -125,7 +131,7 @@ class AuthService {
 
     async getProfile(userId) {
         const user = await User.findByPk(userId, {
-            attributes: ['id', 'name', 'email', 'isVerified']
+            attributes: ['id', 'name', 'email', 'isVerified', 'role']
         });
         if (!user) throw new Error('NOT_FOUND');
         return user;

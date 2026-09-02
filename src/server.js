@@ -4,10 +4,11 @@ const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+const adminRoutes = require('./routes/adminRoutes');
 
-const { sequelize } = require('./models'); // Import Sequelize
+const { sequelize } = require('./models'); 
 
-const errorMiddleware = require('./middleware/errorMiddleware'); // Import Global Error Middleware
+const errorMiddleware = require('./middleware/errorMiddleware'); 
 const { startDeclineExpiryJob } = require('./utils/declineExpiryJob');
 
 // Route Imports
@@ -52,6 +53,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/signatures', signatureRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Mount the Global Error Handler 
 // This must be the very last app.use() so it can catch everything!

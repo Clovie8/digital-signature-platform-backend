@@ -7,7 +7,8 @@ require('dotenv').config();
 const listDocuments = asyncHandler(async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
-    const documents = await documentService.listDocuments(userId, userEmail);
+    const isAdmin = req.user.role === 'admin';
+    const documents = await documentService.listDocuments(userId, userEmail, isAdmin);
     res.status(200).json({ documents });
 });
 
@@ -28,9 +29,10 @@ const getDocument = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user.userId;
     const userEmail = req.user.email;
+    const isAdmin = req.user.role === 'admin';
 
     try {
-        const document = await documentService.getDocument(id, userId, userEmail);
+        const document = await documentService.getDocument(id, userId, userEmail, isAdmin);
         res.status(200).json({ document });
     } catch (error) {
         if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
