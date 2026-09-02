@@ -4,6 +4,7 @@ const { Op } = require('sequelize');
 const { Document, WorkflowStep, AuditLog, User, Signature, sequelize } = require('../models');
 const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, deleteFromR2 } = require('../utils/s3Manager');
 const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail, sendVoidNotificationEmail } = require('../utils/emailManager');
+const { stampDocument, appendAuditTrail } = require('../utils/pdfManager'); 
 
 const MAX_RESUMES = 3;
 const REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
@@ -288,7 +289,8 @@ class DocumentService {
                     signerName: signer.name,
                     stepOrder: stepOrder,
                     status: 'pending',
-                    signatureUiData: signerFields
+                    signatureUiData: signerFields,
+                    receivesFinalCopy: signer.receivesFinalCopy !== false
                 }, { transaction });
 
                 if (stepOrder === 1) {
@@ -828,7 +830,9 @@ class DocumentService {
 
             // Email distribution logic
             const steps = await WorkflowStep.findAll({ where: { document_id: documentId } });
-            const stepEmails = steps.map(s => s.signerEmail);
+            const stepEmails = steps
+                .filter(s => s.receivesFinalCopy !== false)
+                .map(s => s.signerEmail);
             
             // Extract the initiator's email directly from the included User model
             const initiatorEmail = document.User.email;
