@@ -315,7 +315,8 @@ class DocumentService {
                     signerName: signer.name,
                     stepOrder: stepOrder,
                     status: 'pending',
-                    signatureUiData: signerFields
+                    signatureUiData: signerFields,
+                    receivesFinalCopy: signer.receivesFinalCopy !== false
                 }, { transaction });
 
                 if (stepOrder === 1) {
@@ -889,7 +890,9 @@ class DocumentService {
 
             // Email distribution logic
             const steps = await WorkflowStep.findAll({ where: { document_id: documentId } });
-            const stepEmails = steps.map(s => s.signerEmail);
+            const stepEmails = steps
+                .filter(s => s.receivesFinalCopy !== false)
+                .map(s => s.signerEmail);
             
             // Extract the initiator's email directly from the included User model
             const initiatorEmail = document.User.email;

@@ -3,6 +3,8 @@ require('dotenv').config();
 
 // Create the transporter using environment variables
 const transporter = nodemailer.createTransport({
+    pool: true,
+    maxConnections: 1,
     host: process.env.SMTP_HOST,
     port: process.env.SMTP_PORT,
     secure: false, // true for 465, false for other ports like 587
