@@ -11,6 +11,8 @@ const {
     voidDocument,
     sendReminder,
     downloadDocument,
+    getReviewFile,
+    approveDocument,
     getDraftFile,
     saveDraftConfig,
     replaceDraftFile,
@@ -40,6 +42,8 @@ router.post('/:id/revise', authenticateToken, upload.single('pdf_file'), reviseD
 router.post('/:id/void', authenticateToken, voidDocument);
 router.post('/:id/remind', authenticateToken, sendReminder);
 router.get('/:id/download', authenticateToken, downloadDocument);
+router.get('/:id/review', authenticateToken, getReviewFile);
+router.post('/:id/approve', authenticateToken, approveDocument);
 router.get('/:id/file', authenticateToken, getDraftFile);
 router.patch('/:id/draft-config', authenticateToken, saveDraftConfig);
 router.post('/:id/file', authenticateToken, upload.single('pdf_file'), replaceDraftFile);
