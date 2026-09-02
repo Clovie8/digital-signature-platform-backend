@@ -117,6 +117,30 @@ const sendVerificationEmail = async (userEmail, token) => {
     }
 };
 
+const sendReviewReadyEmail = async (initiatorEmail, documentName) => {
+    try {
+        const mailOptions = {
+            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            to: initiatorEmail,
+            subject: `Ready for your review: ${documentName}`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+                    <h2 style="color: #333;">All Signatures Collected</h2>
+                    <p style="color: #555; font-size: 16px;">
+                        Every signer has completed <strong>${documentName}</strong>. It hasn't been sealed yet — review it and approve to finalize and notify everyone.
+                    </p>
+                </div>
+            `
+        };
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`Review-ready email sent to ${initiatorEmail}: ${info.messageId}`);
+        return true;
+    } catch (error) {
+        console.error('Review Ready Email Error:', error);
+        return false;
+    }
+};
+
 const sendCompletionEmail = async (signerEmail, documentName, secureLink) => {
     try {
         const mailOptions = {
@@ -341,4 +365,4 @@ const sendExpirationEmail = async (userEmail, documentName) => {
 };
 
 
-module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail };
+module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail };

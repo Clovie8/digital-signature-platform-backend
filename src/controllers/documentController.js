@@ -110,7 +110,7 @@ const completeSigning = asyncHandler(async (req, res) => {
 
     const { step, document } = await documentService.completeSigning(token, completedFields, updatedFields, ipAddress);
     
-    res.status(200).json({ message: 'Document securely signed and sealed.' });
+    res.status(200).json({ message: 'Document signed successfully.' });
 
     await documentService.handleNextWorkflowStep(step, document);
 });
@@ -220,6 +220,36 @@ const downloadDocument = asyncHandler(async (req, res) => {
     }
 });
 
+const getReviewFile = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+
+    try {
+        const { url, fileName } = await documentService.getReviewUrl(id, initiatorId);
+        res.status(200).json({ url, fileName });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document is not awaiting review.');
+        throw error;
+    }
+});
+
+const approveDocument = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+
+    try {
+        const { document } = await documentService.approveDocument(id, initiatorId);
+        res.status(200).json({ message: 'Document approved and sealed.', document });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can approve this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document is not awaiting review.');
+        throw error;
+    }
+});
+
 const getDraftFile = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const initiatorId = req.user.userId;
@@ -276,6 +306,8 @@ module.exports = {
     voidDocument,
     sendReminder,
     downloadDocument,
+    getReviewFile,
+    approveDocument,
     getDraftFile,
     saveDraftConfig,
     replaceDraftFile,
