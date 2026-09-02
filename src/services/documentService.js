@@ -3,8 +3,8 @@ const { v4: uuidv4 } = require('uuid');
 const { Op } = require('sequelize');
 const { Document, WorkflowStep, AuditLog, User, Signature, sequelize } = require('../models');
 const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, deleteFromR2 } = require('../utils/s3Manager');
-const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail, sendVoidNotificationEmail } = require('../utils/emailManager');
-const { stampDocument, appendAuditTrail } = require('../utils/pdfManager'); 
+const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail, sendVoidNotificationEmail, sendReviewReadyEmail } = require('../utils/emailManager');
+const { stampDocument, appendAuditTrail } = require('../utils/pdfManager');
 
 const MAX_RESUMES = 3;
 const REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
@@ -653,7 +653,7 @@ class DocumentService {
 
     // Void Document (initiator gives up on it)
     async voidDocument(documentId, initiatorId, initiatorEmail, ipAddress) {
-        const VOIDABLE_STATUSES = ['draft', 'pending', 'in_progress', 'declined'];
+        const VOIDABLE_STATUSES = ['draft', 'pending', 'in_progress', 'pending_review', 'declined'];
 
         const document = await Document.findByPk(documentId);
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
@@ -820,9 +820,43 @@ class DocumentService {
             await sendSignatureEmail(nextStep.signerEmail, nextStep.signerName, nextStep.accessToken, document.fileName, otp);
             console.log(`[Workflow] Document handed off to Level ${nextStepOrder}: ${nextStep.signerEmail}`);
         } else {
-            console.log(`[Workflow] All signatures collected. Triggering Finalization.`);
-            await this.finalizeDocument(document.id);
+            console.log(`[Workflow] All signatures collected. Awaiting initiator review.`);
+            await document.update({ status: 'pending_review' });
+
+            await AuditLog.create({
+                document_id: document.id,
+                action: 'PENDING_REVIEW',
+                actorEmail: 'system@dsign.local'
+            });
+
+            const initiator = await User.findByPk(document.initiator_id);
+            if (initiator) {
+                await sendReviewReadyEmail(initiator.email, document.fileName);
+            }
         }
+    }
+
+    // Approve Document (initiator reviews the fully-signed document, then seals it)
+    async approveDocument(documentId, initiatorId) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+        if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
+
+        await this.finalizeDocument(documentId);
+        await document.reload();
+        return { document };
+    }
+
+    // Get Review URL (initiator previews the fully-signed, not-yet-sealed document)
+    async getReviewUrl(documentId, initiatorId) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+        if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
+
+        const url = await getPresignedPdfUrl(document.signedFilePath);
+        return { url, fileName: document.fileName };
     }
 
     // Finalize Document
@@ -873,6 +907,7 @@ class DocumentService {
             }
         } catch (error) {
             console.error('[Workflow] Finalization Error:', error);
+            throw error;
         }
     }
 }
