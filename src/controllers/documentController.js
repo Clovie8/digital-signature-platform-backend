@@ -69,13 +69,16 @@ const uploadDocument = asyncHandler(async (req, res) => {
 
 const dispatchDocument = asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const { signers, fields } = req.body;
+    
+    const { signers, fields, initiatorReceivesFinalCopy } = req.body; 
+    
     const initiatorEmail = req.user.email;
     const ipAddress = req.ip || req.connection.remoteAddress;
-
-    const result = await documentService.dispatch(id, signers, fields, initiatorEmail, ipAddress);
+    const result = await documentService.dispatch(id, signers, fields, initiatorEmail, ipAddress, initiatorReceivesFinalCopy);
+    
     res.status(200).json({ message: 'Document dispatched.', ...result });
 });
+
 
 const getSigningView = asyncHandler(async (req, res) => {
     const { token } = req.params;
@@ -104,15 +107,22 @@ const getSigningView = asyncHandler(async (req, res) => {
 });
 
 const completeSigning = asyncHandler(async (req, res) => {
-    const { token } = req.params;
-    const { completedFields, updatedFields } = req.body;
-    const ipAddress = req.ip || req.connection.remoteAddress;
+    try {
+        const { token } = req.params;
+        const { completedFields, updatedFields, pin } = req.body; 
+        const ipAddress = req.ip || req.connection.remoteAddress;
 
-    const { step, document } = await documentService.completeSigning(token, completedFields, updatedFields, ipAddress);
-    
-    res.status(200).json({ message: 'Document signed successfully.' });
+        const { step, document } = await documentService.completeSigning(token, completedFields, updatedFields, ipAddress, pin);
+        
+        res.status(200).json({ message: 'Document signed successfully.' });
 
-    await documentService.handleNextWorkflowStep(step, document);
+        await documentService.handleNextWorkflowStep(step, document);
+    } catch (error) {
+        if (error.message === 'MISSING_PIN' || error.message === 'INVALID_PIN') {
+            throw new UnauthorizedError('Invalid or missing signature PIN. Please re-enter your PIN and try again.');
+        }
+        throw error;
+    }
 });
 
 const declineSigning = asyncHandler(async (req, res) => {
@@ -267,10 +277,11 @@ const getDraftFile = asyncHandler(async (req, res) => {
 const saveDraftConfig = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const initiatorId = req.user.userId;
-    const { signers, fields, isInitiatorFirst, currentStep } = req.body;
+    
+    const { signers, fields, isInitiatorFirst, currentStep, initiatorReceivesFinalCopy } = req.body;
 
     try {
-        await documentService.saveDraftConfig(id, initiatorId, { signers, fields, isInitiatorFirst, currentStep });
+        await documentService.saveDraftConfig(id, initiatorId, { signers, fields, isInitiatorFirst, currentStep, initiatorReceivesFinalCopy });
         res.status(200).json({ message: 'Draft saved.' });
     } catch (error) {
         if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
@@ -279,6 +290,7 @@ const saveDraftConfig = asyncHandler(async (req, res) => {
         throw error;
     }
 });
+
 
 const replaceDraftFile = asyncHandler(async (req, res) => {
     const { id } = req.params;
