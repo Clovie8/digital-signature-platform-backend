@@ -26,9 +26,16 @@ class ValidationError extends AppError {
   }
 }
 
+class ConflictError extends AppError {
+  constructor(message = 'This action conflicts with a change that already happened') {
+    super(message, 409);
+  }
+}
+
 module.exports = {
   AppError,
   NotFoundError,
   UnauthorizedError,
-  ValidationError
+  ValidationError,
+  ConflictError
 };

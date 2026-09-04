@@ -703,7 +703,11 @@ class DocumentService {
                 { where: { document_id: documentId, status: 'pending' }, transaction }
             );
 
-            await document.update({ status: 'voided' }, { transaction });
+            const [affectedCount] = await Document.update(
+                { status: 'voided' },
+                { where: { id: documentId, status: { [Op.in]: VOIDABLE_STATUSES } }, transaction }
+            );
+            if (affectedCount === 0) throw new Error('CONFLICT');
 
             await AuditLog.create({
                 document_id: document.id,
@@ -838,8 +842,16 @@ class DocumentService {
             await sendSignatureEmail(nextStep.signerEmail, nextStep.signerName, nextStep.accessToken, document.fileName, otp);
             console.log(`[Workflow] Document handed off to Level ${nextStepOrder}: ${nextStep.signerEmail}`);
         } else {
+            const [affectedCount] = await Document.update(
+                { status: 'pending_review' },
+                { where: { id: document.id, status: { [Op.in]: ['pending', 'in_progress'] } } }
+            );
+            if (affectedCount === 0) {
+                console.log(`[Workflow] Document ${document.id} was voided before the final signature could move it to review. Skipping.`);
+                return;
+            }
+
             console.log(`[Workflow] All signatures collected. Awaiting initiator review.`);
-            await document.update({ status: 'pending_review' });
 
             await AuditLog.create({
                 document_id: document.id,
@@ -897,7 +909,11 @@ class DocumentService {
             const masterHash = crypto.createHash('sha256').update(finalBuffer).digest('hex');
             const finalFileKey = await uploadBufferToR2(finalBuffer, `FINAL-${document.fileName}`);
 
-            await document.update({ status: 'completed', signedFilePath: finalFileKey, currentHash: masterHash });
+            const [affectedCount] = await Document.update(
+                { status: 'completed', signedFilePath: finalFileKey, currentHash: masterHash },
+                { where: { id: documentId, status: 'pending_review' } }
+            );
+            if (affectedCount === 0) throw new Error('CONFLICT');
 
             await AuditLog.create({
                 document_id: documentId,
