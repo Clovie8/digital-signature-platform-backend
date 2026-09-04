@@ -367,4 +367,23 @@ const sendExpirationEmail = async (userEmail, documentName) => {
 };
 
 
-module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail };
+const sendPinResetEmail = async (toEmail, otp) => {
+    const mailOptions = {
+        from: `"DSign Security" <${process.env.EMAIL_USER}>`,
+        to: toEmail,
+        subject: 'Signature PIN Reset Code',
+        html: `
+            <div style="font-family: Arial, sans-serif; max-w: 600px; margin: 0 auto;">
+                <h2>Reset Your Signature PIN</h2>
+                <p>You requested to reset the PIN for one of your saved signatures.</p>
+                <p>Your 6-digit reset code is:</p>
+                <h1 style="background: #f1f5f9; padding: 15px; text-align: center; letter-spacing: 5px; color: #0f172a;">${otp}</h1>
+                <p style="color: #64748b; font-size: 12px;">This code will expire in 15 minutes. If you did not request this reset, you can safely ignore this email.</p>
+            </div>
+        `
+    };
+    await transporter.sendMail(mailOptions);
+};
+
+
+module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail, sendPinResetEmail };

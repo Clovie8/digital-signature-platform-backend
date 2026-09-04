@@ -1,10 +1,11 @@
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { Op } = require('sequelize');
-const { Document, WorkflowStep, AuditLog, User, Signature, sequelize } = require('../models');
+const { Document, WorkflowStep, AuditLog, User, Signature, Signer, sequelize } = require('../models');
 const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, deleteFromR2 } = require('../utils/s3Manager');
 const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail, sendVoidNotificationEmail, sendReviewReadyEmail } = require('../utils/emailManager');
 const { stampDocument, appendAuditTrail } = require('../utils/pdfManager');
+const bcrypt = require('bcryptjs');
 
 const MAX_RESUMES = 3;
 const REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
@@ -289,7 +290,7 @@ class DocumentService {
     }
 
     // Dispatch Document Workflow
-    async dispatch(documentId, signers, fields, initiatorEmail, ipAddress) {
+    async dispatch(documentId, signers, fields, initiatorEmail, ipAddress, initiatorReceivesFinalCopy) {
         // Use a Sequelize Transaction to ensure atomicity
         const transaction = await sequelize.transaction();
 
@@ -297,7 +298,7 @@ class DocumentService {
             const document = await Document.findByPk(documentId, { transaction });
             if (!document) throw new Error('DOCUMENT_NOT_FOUND');
 
-            await document.update({ status: 'pending' }, { transaction });
+            await document.update({ status: 'pending', initiatorReceivesFinalCopy }, { transaction });
 
             let firstSignerToken = null;
             let firstSignerEmail = null;
@@ -375,19 +376,23 @@ class DocumentService {
 
         const securePdfUrl = await getPresignedPdfUrl(targetFileKey);
         
-        //Fetch any saved signatures for this email ---
-        const savedSignatures = await Signature.findAll({
-            where: { signer_email: step.signerEmail },
-            attributes: ['id', 'signature_url']
+        const vault = await Signer.findOne({ 
+            where: { email: step.signerEmail },
+            include: [{ model: Signature, as: 'signatures' }] 
         });
 
-        //Convert private R2 keys into secure, temporary image URLs ---
+        // The entire vault is either protected or not
+        const isProtected = !!vault?.pin_hash;
+        const savedSignatures = vault ? vault.signatures : [];
+
+        // 2. Convert private R2 keys into secure, temporary image URLs
         const secureSavedSignatures = await Promise.all(
             savedSignatures.map(async (sig) => {
                 return {
                     id: sig.id,
-                    originalKey: sig.signature_url, // Sent back to the server upon adoption
-                    displayUrl: await getPresignedPdfUrl(sig.signature_url) // Used strictly for frontend display
+                    originalKey: sig.signature_url, 
+                    displayUrl: await getPresignedPdfUrl(sig.signature_url), 
+                    isProtected: isProtected 
                 };
             })
         );
@@ -428,7 +433,7 @@ class DocumentService {
     }
     
     // Complete Signing
-    async completeSigning(token, completedFields, updatedFields, ipAddress) {
+    async completeSigning(token, completedFields, updatedFields, ipAddress, pin) {
         const transaction = await sequelize.transaction();
 
         try {
@@ -441,20 +446,32 @@ class DocumentService {
             if (step.status === 'completed') {
                 console.log(`[Concurrency] Blocked duplicate signature attempt for token: ${token}`);
                 await transaction.rollback();
-
-                // Return gracefully so the frontend simply closes the loading screen without crashing
                 return { step, document: await Document.findByPk(step.document_id)};
             }
 
             if (step.status !== 'pending') throw new Error('INVALID_STATE');
 
-
             const document = await Document.findByPk(step.document_id, { transaction });
+            
+            // 1. INITIALIZE THE FIELDS FIRST
+            const fieldsToStamp = updatedFields && updatedFields.length > 0 ? updatedFields : step.signatureUiData;
 
+            // 2. STRICT ENFORCEMENT: UNIFIED VAULT CHECK
+            if (fieldsToStamp && fieldsToStamp.some(f => f.imageUrl && f.imageUrl.includes('user-signatures/'))) {
+                const vault = await Signer.findOne({ where: { email: step.signerEmail }, transaction });
+                
+                if (vault && vault.pin_hash) {
+                    if (!pin) throw new Error('MISSING_PIN');
+                    
+                    const isValid = await bcrypt.compare(pin.toString(), vault.pin_hash);
+                    if (!isValid) throw new Error('INVALID_PIN');
+                }
+            }
+
+            // 3. PROCEED WITH PDF STAMPING
             const targetFileKey = document.signedFilePath || document.originalFilePath;
             const originalBuffer = await getFileBufferFromR2(targetFileKey);
 
-            const fieldsToStamp = updatedFields && updatedFields.length > 0 ? updatedFields : step.signatureUiData;
             const stampedBuffer = await stampDocument(originalBuffer, fieldsToStamp, completedFields);
 
             const stepHash = crypto.createHash('sha256').update(stampedBuffer).digest('hex');
@@ -472,7 +489,7 @@ class DocumentService {
             }, { transaction });
 
             await transaction.commit();
-            return { step, document }; // Return needed data to controller to trigger next steps
+            return { step, document }; 
 
         } catch (error) {
             await transaction.rollback();
@@ -598,7 +615,8 @@ class DocumentService {
                     signerName: oldStep.signerName,
                     stepOrder: oldStep.stepOrder,
                     status: 'pending',
-                    signatureUiData: oldStep.signatureUiData
+                    signatureUiData: oldStep.signatureUiData, 
+                    receivesFinalCopy: oldStep.receivesFinalCopy
                 }, { transaction });
                 newSteps.push(newStep);
             }
@@ -896,9 +914,14 @@ class DocumentService {
             
             // Extract the initiator's email directly from the included User model
             const initiatorEmail = document.User.email;
+
+            const finalEmailsArray = [...stepEmails];
+            if (document.initiatorReceivesFinalCopy !== false) {
+                finalEmailsArray.push(initiatorEmail);
+            }
             
             // Deduplicate the list using a Set
-            const participantEmails = [...new Set([...stepEmails, initiatorEmail])];
+            const participantEmails = [...new Set(finalEmailsArray)];
             const finalSecureLink = await getPresignedPdfUrl(finalFileKey);
 
             for (const email of participantEmails) {
