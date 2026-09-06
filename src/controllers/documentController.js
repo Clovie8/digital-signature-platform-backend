@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const documentService = require('../services/documentService');
 const asyncHandler = require('../utils/asyncHandler');
-const { AppError, NotFoundError, ValidationError, UnauthorizedError } = require('../utils/errors');
+const { AppError, NotFoundError, ValidationError, UnauthorizedError, ConflictError } = require('../utils/errors');
 require('dotenv').config();
 
 const listDocuments = asyncHandler(async (req, res) => {
@@ -190,6 +190,7 @@ const voidDocument = asyncHandler(async (req, res) => {
         if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
         if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can void this document.');
         if (error.message === 'INVALID_STATE') throw new ValidationError('This document can no longer be voided.');
+        if (error.message === 'CONFLICT') throw new ConflictError('This document just changed state and can no longer be voided — refresh to see its current status.');
         throw error;
     }
 });
@@ -256,6 +257,7 @@ const approveDocument = asyncHandler(async (req, res) => {
         if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
         if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can approve this document.');
         if (error.message === 'INVALID_STATE') throw new ValidationError('This document is not awaiting review.');
+        if (error.message === 'CONFLICT') throw new ConflictError('This document was voided before it could be approved — refresh to see its current status.');
         throw error;
     }
 });
