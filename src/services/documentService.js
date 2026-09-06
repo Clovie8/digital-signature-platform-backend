@@ -53,6 +53,8 @@ class DocumentService {
                 .filter(s => s.status === 'pending')
                 .sort((a, b) => a.stepOrder - b.stepOrder);
 
+            const activeStep = orderedPendingSteps.length ? orderedPendingSteps[0] : null;
+
             return {
                 id: document.id,
                 fileName: document.fileName,
@@ -67,7 +69,8 @@ class DocumentService {
                 declinedStepOrder: declinedStep ? declinedStep.stepOrder : null,
                 initiatorId: document.initiator_id,
                 initiatorName: document.User ? document.User.name : null,
-                pendingOn: orderedPendingSteps.length ? orderedPendingSteps[0].signerName : null
+                pendingOn: orderedPendingSteps.length ? orderedPendingSteps[0].signerName : null,
+                pendingSignerToken: (activeStep && activeStep.signerEmail === userEmail) ? activeStep.accessToken : null
             };
         });
     }

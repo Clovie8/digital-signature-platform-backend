@@ -9,7 +9,8 @@ const {
     verifyEmail,
     resendVerification,
     logoutUser,
-    getUserProfile
+    getUserProfile,
+    searchUsers
 } = require('../controllers/authController');
 
 const authenticateToken = require('../middleware/authMiddleware');
@@ -25,5 +26,7 @@ router.post('/resend-verification', resendVerification);
 // Protected routes
 router.post('/logout', authenticateToken, logoutUser);
 router.get('/me', authenticateToken, getUserProfile);
+// Search users
+router.get('/users/search', authenticateToken, searchUsers);
 
 module.exports = router;
