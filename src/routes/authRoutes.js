@@ -9,9 +9,13 @@ const {
     verifyEmail,
     resendVerification,
     logoutUser,
-    getUserProfile
+    getUserProfile,
+    checkInvite,
+    completeInvite
 } = require('../controllers/authController');
 
+const { microsoftLogin, microsoftCallback } = require('../controllers/microsoftAuthController');
+const { googleLogin, googleCallback } = require('../controllers/googleAuthController');
 const authenticateToken = require('../middleware/authMiddleware');
 
 // Public routes
@@ -21,6 +25,14 @@ router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 router.post('/verify', verifyEmail);
 router.post('/resend-verification', resendVerification);
+router.get('/check-invite', checkInvite);
+router.post('/complete-invite', completeInvite);
+
+// Microsoft OAuth
+router.get('/microsoft', microsoftLogin);
+router.get('/microsoft/callback', microsoftCallback);
+router.get('/google', googleLogin);
+router.get('/google/callback', googleCallback);
 
 // Protected routes
 router.post('/logout', authenticateToken, logoutUser);

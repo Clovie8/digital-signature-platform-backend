@@ -104,4 +104,34 @@ const getUserProfile = asyncHandler(async (req, res) => {
     }
 });
 
-module.exports = { registerUser, loginUser, forgotPassword, resetPassword, verifyEmail, resendVerification, logoutUser, getUserProfile };
+const checkInvite = asyncHandler(async (req, res) => {
+    const { email } = req.query;
+    if (!email) throw new ValidationError('Email is required.');
+    const result = await authService.checkInviteStatus(email);
+    res.status(200).json(result);
+});
+
+const completeInvite = asyncHandler(async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) throw new ValidationError('Email and password are required.');
+
+    try {
+        const { token, user } = await authService.completeInvite(email, password);
+
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 24 * 60 * 60 * 1000
+        });
+
+        res.status(200).json({ message: 'Account activated.', user });
+    } catch (error) {
+        if (error.message === 'NOT_FOUND') throw new NotFoundError('User not found.');
+        if (error.message === 'NOT_VERIFIED') throw new ValidationError('Please verify your email first.');
+        if (error.message === 'ALREADY_COMPLETED') throw new ValidationError('This account is already set up. Please sign in.');
+        throw error;
+    }
+});
+
+module.exports = { registerUser, loginUser, forgotPassword, resetPassword, verifyEmail, resendVerification, logoutUser, getUserProfile, checkInvite, completeInvite, };

@@ -20,7 +20,9 @@ const {
     completeSigning,
     declineSigning,
     resumeDocument,
-    reviseDocument
+    reviseDocument,
+    getReview,
+    approveDocument
 } = require('../controllers/documentController');
 
 const authenticateToken = require('../middleware/authMiddleware');
@@ -43,6 +45,8 @@ router.get('/:id/download', authenticateToken, downloadDocument);
 router.get('/:id/file', authenticateToken, getDraftFile);
 router.patch('/:id/draft-config', authenticateToken, saveDraftConfig);
 router.post('/:id/file', authenticateToken, upload.single('pdf_file'), replaceDraftFile);
+router.get('/:id/review', authenticateToken, getReview);
+router.post('/:id/approve', authenticateToken, approveDocument);
 
 // Public Signer Routes (Auth handled via Tokenized Magic Links in URL)
 router.get('/sign/:token', getSigningView);

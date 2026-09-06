@@ -4,7 +4,7 @@ const { Op } = require('sequelize');
 const { Document, WorkflowStep, AuditLog, User, Signature, sequelize } = require('../models');
 const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, deleteFromR2 } = require('../utils/s3Manager');
 const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail, sendVoidNotificationEmail } = require('../utils/emailManager');
-
+const { stampDocument, appendAuditTrail } = require('../utils/pdfManager');
 const MAX_RESUMES = 3;
 const REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
 
@@ -225,6 +225,24 @@ class DocumentService {
         }
 
         return result;
+    }
+        // Trigger Next Step or Move to Review
+    async handleNextWorkflowStep(completedStep, document) {
+        const nextStepOrder = completedStep.stepOrder + 1;
+        const nextStep = await WorkflowStep.findOne({ where: { document_id: document.id, stepOrder: nextStepOrder } });
+
+        if (nextStep) {
+            const otp = Math.floor(100000 + Math.random() * 900000).toString();
+            await nextStep.update({ 
+                otpCode: otp, 
+                otpExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) 
+            });
+            await sendSignatureEmail(nextStep.signerEmail, nextStep.signerName, nextStep.accessToken, document.fileName, otp);
+            console.log(`[Workflow] Document handed off to Level ${nextStepOrder}: ${nextStep.signerEmail}`);
+        } else {
+            console.log(`[Workflow] All signatures collected. Awaiting initiator review.`);
+            await document.update({ status: 'pending_review' });
+        }
     }
 
     // Get Version History (walks the parent_document_id chain both directions)
@@ -768,6 +786,28 @@ class DocumentService {
 
         const url = await getPresignedPdfUrl(document.signedFilePath);
         return { url, fileName: document.fileName };
+    }
+        // Get Review File (initiator only, while awaiting their approval)
+    async getReviewFile(documentId, initiatorId) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+        if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
+
+        const targetFileKey = document.signedFilePath || document.originalFilePath;
+        const url = await getPresignedPdfUrl(targetFileKey);
+        return { url, fileName: document.fileName };
+    }
+
+    // Approve Document (initiator confirms the fully-signed document, triggers sealing)
+    async approveDocument(documentId, initiatorId) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+        if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
+
+        await this.finalizeDocument(documentId);
+        return { document };
     }
 
     // Get Draft File (initiator only, for resuming the upload wizard)

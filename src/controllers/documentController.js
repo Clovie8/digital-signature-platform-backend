@@ -148,6 +148,36 @@ const resumeDocument = asyncHandler(async (req, res) => {
     }
 });
 
+const getReview = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+
+    try {
+        const { url, fileName } = await documentService.getReviewFile(id, initiatorId);
+        res.status(200).json({ url, fileName });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document is not awaiting review.');
+        throw error;
+    }
+});
+
+const approveDocument = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+
+    try {
+        await documentService.approveDocument(id, initiatorId);
+        res.status(200).json({ message: 'Document approved, sealed, and emailed to all signers.' });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can approve this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document is not awaiting review.');
+        throw error;
+    }
+});
+
 const reviseDocument = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const initiatorId = req.user.userId;
@@ -285,5 +315,7 @@ module.exports = {
     completeSigning,
     declineSigning,
     resumeDocument,
-    reviseDocument
+    reviseDocument,
+    getReview,
+    approveDocument
 };

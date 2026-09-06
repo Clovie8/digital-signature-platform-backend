@@ -19,7 +19,7 @@ const Document = sequelize.define('Document', {
     signedFilePath: DataTypes.TEXT,
     currentHash: DataTypes.TEXT,
     status: {
-        type: DataTypes.ENUM('draft', 'pending', 'in_progress', 'completed', 'declined', 'superseded', 'voided'),
+        type: DataTypes.ENUM('draft', 'pending', 'in_progress', 'pending_review', 'completed', 'declined', 'superseded', 'voided'),
         defaultValue: 'draft',
     },
     version: {
