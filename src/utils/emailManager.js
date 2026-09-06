@@ -3,6 +3,8 @@ require('dotenv').config();
 
 // Create the transporter using environment variables
 const transporter = nodemailer.createTransport({
+    pool: true,
+    maxConnections: 1,
     host: process.env.SMTP_HOST,
     port: process.env.SMTP_PORT,
     secure: false, // true for 465, false for other ports like 587
@@ -117,37 +119,26 @@ const sendVerificationEmail = async (userEmail, token) => {
     }
 };
 
-const sendInvitationEmail = async (toEmail, inviterName) => {
+const sendReviewReadyEmail = async (initiatorEmail, documentName) => {
     try {
-        const registerLink = `${process.env.FRONTEND_URL}/login?register=true&email=${encodeURIComponent(toEmail)}`;
-
         const mailOptions = {
             from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
-            to: toEmail,
-            subject: `${inviterName} invited you to DSign`,
+            to: initiatorEmail,
+            subject: `Ready for your review: ${documentName}`,
             html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #333;">You've been invited to DSign</h2>
+                    <h2 style="color: #333;">All Signatures Collected</h2>
                     <p style="color: #555; font-size: 16px;">
-                        <strong>${inviterName}</strong> has invited you to join their organization on DSign, a secure digital signature platform.
-                    </p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="${registerLink}" style="background-color: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">
-                            Accept Invitation
-                        </a>
-                    </div>
-                    <p style="color: #777; font-size: 14px;">
-                        If you weren't expecting this invitation, you can safely ignore this email.
+                        Every signer has completed <strong>${documentName}</strong>. It hasn't been sealed yet — review it and approve to finalize and notify everyone.
                     </p>
                 </div>
             `
         };
-
         const info = await transporter.sendMail(mailOptions);
-        console.log(`Invitation email sent to ${toEmail}: ${info.messageId}`);
+        console.log(`Review-ready email sent to ${initiatorEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
-        console.error('Invitation Email Error:', error);
+        console.error('Review Ready Email Error:', error);
         return false;
     }
 };
@@ -376,4 +367,23 @@ const sendExpirationEmail = async (userEmail, documentName) => {
 };
 
 
-module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail, sendInvitationEmail };
+const sendPinResetEmail = async (toEmail, otp) => {
+    const mailOptions = {
+        from: `"DSign Security" <${process.env.EMAIL_USER}>`,
+        to: toEmail,
+        subject: 'Signature PIN Reset Code',
+        html: `
+            <div style="font-family: Arial, sans-serif; max-w: 600px; margin: 0 auto;">
+                <h2>Reset Your Signature PIN</h2>
+                <p>You requested to reset the PIN for one of your saved signatures.</p>
+                <p>Your 6-digit reset code is:</p>
+                <h1 style="background: #f1f5f9; padding: 15px; text-align: center; letter-spacing: 5px; color: #0f172a;">${otp}</h1>
+                <p style="color: #64748b; font-size: 12px;">This code will expire in 15 minutes. If you did not request this reset, you can safely ignore this email.</p>
+            </div>
+        `
+    };
+    await transporter.sendMail(mailOptions);
+};
+
+
+module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail, sendPinResetEmail };

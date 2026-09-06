@@ -30,6 +30,10 @@ const Document = sequelize.define('Document', {
         type: DataTypes.INTEGER,
         defaultValue: 0,
     },
+    initiatorReceivesFinalCopy: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true,
+    },
     declineWarningSentAt: DataTypes.DATE,
     draftConfig: DataTypes.JSONB,
 }, {

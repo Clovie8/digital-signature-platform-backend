@@ -37,6 +37,12 @@ const WorkflowStep = sequelize.define('WorkflowStep', {
     declineReason: DataTypes.TEXT,
     declineType: DataTypes.ENUM('resumable', 'requires_revision'),
     lastReminderSentAt: DataTypes.DATE,
+
+    receivesFinalCopy: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true,
+    },
+    
 }, {
     tableName: 'workflow_steps',
     underscored: true,

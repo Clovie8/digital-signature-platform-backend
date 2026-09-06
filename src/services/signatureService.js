@@ -1,10 +1,11 @@
 const crypto = require('crypto');
-const { WorkflowStep, Document, AuditLog, sequelize } = require('../models');
+const bcrypt = require('bcryptjs'); 
+const { WorkflowStep, Document, AuditLog, Signer, sequelize } = require('../models');
 const { applySignatureToPDF } = require('../utils/pdfManager'); 
 const { sendSignatureEmail } = require('../utils/emailManager');
 
 class SignatureService {
-    async submit(token, signerIp, signatureImageKey) {
+    async submit(token, signerIp, signatureImageKey, pin) {
         // Initialize a Sequelize Transaction to ensure database safety
         const transaction = await sequelize.transaction();
 
@@ -34,6 +35,16 @@ class SignatureService {
                     type: 'image',
                     imageUrl: signatureImageKey
                 };
+            }
+
+            if (signatureImageKey && signatureImageKey.includes('user-signatures/')) {
+                const vault = await Signer.findOne({ where: { email: currentStep.signerEmail }, transaction });
+                
+                if (vault && vault.pin_hash) {
+                    if (!pin) throw new Error('MISSING_PIN');
+                    const isValid = await bcrypt.compare(pin.toString(), vault.pin_hash);
+                    if (!isValid) throw new Error('INVALID_PIN');
+                }
             }
 
             // PHYSICALLY STAMP THE PDF 

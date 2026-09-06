@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const documentService = require('../services/documentService');
 const asyncHandler = require('../utils/asyncHandler');
-const { AppError, NotFoundError, ValidationError, UnauthorizedError } = require('../utils/errors');
+const { AppError, NotFoundError, ValidationError, UnauthorizedError, ConflictError } = require('../utils/errors');
 require('dotenv').config();
 
 const listDocuments = asyncHandler(async (req, res) => {
@@ -69,13 +69,16 @@ const uploadDocument = asyncHandler(async (req, res) => {
 
 const dispatchDocument = asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const { signers, fields } = req.body;
+    
+    const { signers, fields, initiatorReceivesFinalCopy } = req.body; 
+    
     const initiatorEmail = req.user.email;
     const ipAddress = req.ip || req.connection.remoteAddress;
-
-    const result = await documentService.dispatch(id, signers, fields, initiatorEmail, ipAddress);
+    const result = await documentService.dispatch(id, signers, fields, initiatorEmail, ipAddress, initiatorReceivesFinalCopy);
+    
     res.status(200).json({ message: 'Document dispatched.', ...result });
 });
+
 
 const getSigningView = asyncHandler(async (req, res) => {
     const { token } = req.params;
@@ -104,15 +107,22 @@ const getSigningView = asyncHandler(async (req, res) => {
 });
 
 const completeSigning = asyncHandler(async (req, res) => {
-    const { token } = req.params;
-    const { completedFields, updatedFields } = req.body;
-    const ipAddress = req.ip || req.connection.remoteAddress;
+    try {
+        const { token } = req.params;
+        const { completedFields, updatedFields, pin } = req.body; 
+        const ipAddress = req.ip || req.connection.remoteAddress;
 
-    const { step, document } = await documentService.completeSigning(token, completedFields, updatedFields, ipAddress);
-    
-    res.status(200).json({ message: 'Document securely signed and sealed.' });
+        const { step, document } = await documentService.completeSigning(token, completedFields, updatedFields, ipAddress, pin);
+        
+        res.status(200).json({ message: 'Document signed successfully.' });
 
-    await documentService.handleNextWorkflowStep(step, document);
+        await documentService.handleNextWorkflowStep(step, document);
+    } catch (error) {
+        if (error.message === 'MISSING_PIN' || error.message === 'INVALID_PIN') {
+            throw new UnauthorizedError('Invalid or missing signature PIN. Please re-enter your PIN and try again.');
+        }
+        throw error;
+    }
 });
 
 const declineSigning = asyncHandler(async (req, res) => {
@@ -144,36 +154,6 @@ const resumeDocument = asyncHandler(async (req, res) => {
         if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can resume this document.');
         if (error.message === 'INVALID_STATE') throw new ValidationError('Document is not in a declined state.');
         if (error.message === 'RESUME_LIMIT_REACHED') throw new ValidationError('This document has already been resumed the maximum number of times. Create a revision or void it instead.');
-        throw error;
-    }
-});
-
-const getReview = asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const initiatorId = req.user.userId;
-
-    try {
-        const { url, fileName } = await documentService.getReviewFile(id, initiatorId);
-        res.status(200).json({ url, fileName });
-    } catch (error) {
-        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
-        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
-        if (error.message === 'INVALID_STATE') throw new ValidationError('This document is not awaiting review.');
-        throw error;
-    }
-});
-
-const approveDocument = asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const initiatorId = req.user.userId;
-
-    try {
-        await documentService.approveDocument(id, initiatorId);
-        res.status(200).json({ message: 'Document approved, sealed, and emailed to all signers.' });
-    } catch (error) {
-        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
-        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can approve this document.');
-        if (error.message === 'INVALID_STATE') throw new ValidationError('This document is not awaiting review.');
         throw error;
     }
 });
@@ -210,6 +190,7 @@ const voidDocument = asyncHandler(async (req, res) => {
         if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
         if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can void this document.');
         if (error.message === 'INVALID_STATE') throw new ValidationError('This document can no longer be voided.');
+        if (error.message === 'CONFLICT') throw new ConflictError('This document just changed state and can no longer be voided — refresh to see its current status.');
         throw error;
     }
 });
@@ -250,6 +231,37 @@ const downloadDocument = asyncHandler(async (req, res) => {
     }
 });
 
+const getReviewFile = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+
+    try {
+        const { url, fileName } = await documentService.getReviewUrl(id, initiatorId);
+        res.status(200).json({ url, fileName });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document is not awaiting review.');
+        throw error;
+    }
+});
+
+const approveDocument = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const initiatorId = req.user.userId;
+
+    try {
+        const { document } = await documentService.approveDocument(id, initiatorId);
+        res.status(200).json({ message: 'Document approved and sealed.', document });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can approve this document.');
+        if (error.message === 'INVALID_STATE') throw new ValidationError('This document is not awaiting review.');
+        if (error.message === 'CONFLICT') throw new ConflictError('This document was voided before it could be approved — refresh to see its current status.');
+        throw error;
+    }
+});
+
 const getDraftFile = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const initiatorId = req.user.userId;
@@ -267,10 +279,11 @@ const getDraftFile = asyncHandler(async (req, res) => {
 const saveDraftConfig = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const initiatorId = req.user.userId;
-    const { signers, fields, isInitiatorFirst, currentStep } = req.body;
+    
+    const { signers, fields, isInitiatorFirst, currentStep, initiatorReceivesFinalCopy } = req.body;
 
     try {
-        await documentService.saveDraftConfig(id, initiatorId, { signers, fields, isInitiatorFirst, currentStep });
+        await documentService.saveDraftConfig(id, initiatorId, { signers, fields, isInitiatorFirst, currentStep, initiatorReceivesFinalCopy });
         res.status(200).json({ message: 'Draft saved.' });
     } catch (error) {
         if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
@@ -306,6 +319,8 @@ module.exports = {
     voidDocument,
     sendReminder,
     downloadDocument,
+    getReviewFile,
+    approveDocument,
     getDraftFile,
     saveDraftConfig,
     replaceDraftFile,
@@ -315,7 +330,5 @@ module.exports = {
     completeSigning,
     declineSigning,
     resumeDocument,
-    reviseDocument,
-    getReview,
-    approveDocument
+    reviseDocument
 };

@@ -7,21 +7,17 @@ const Signature = sequelize.define('Signature', {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
     },
-    signer_name: {
-        type: DataTypes.STRING,
+    signer_id: {
+        type: DataTypes.UUID,
         allowNull: false,
-    },
-    signer_email: {
-        type: DataTypes.STRING,
-        allowNull: false,
+        references: {
+            model: 'signers', // Must match the tableName of the Signer model
+            key: 'id'
+        }
     },
     signature_url: {
         type: DataTypes.STRING,
         allowNull: false, 
-    },
-    user_id: {
-        type: DataTypes.UUID,
-        allowNull: true, 
     }
 }, {
     tableName: 'signatures',

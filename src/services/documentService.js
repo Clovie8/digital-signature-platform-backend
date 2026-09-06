@@ -1,10 +1,12 @@
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { Op } = require('sequelize');
-const { Document, WorkflowStep, AuditLog, User, Signature, sequelize } = require('../models');
+const { Document, WorkflowStep, AuditLog, User, Signature, Signer, sequelize } = require('../models');
 const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, deleteFromR2 } = require('../utils/s3Manager');
-const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail, sendVoidNotificationEmail } = require('../utils/emailManager');
+const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail, sendVoidNotificationEmail, sendReviewReadyEmail } = require('../utils/emailManager');
 const { stampDocument, appendAuditTrail } = require('../utils/pdfManager');
+const bcrypt = require('bcryptjs');
+
 const MAX_RESUMES = 3;
 const REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
 
@@ -306,7 +308,7 @@ class DocumentService {
     }
 
     // Dispatch Document Workflow
-    async dispatch(documentId, signers, fields, initiatorEmail, ipAddress) {
+    async dispatch(documentId, signers, fields, initiatorEmail, ipAddress, initiatorReceivesFinalCopy) {
         // Use a Sequelize Transaction to ensure atomicity
         const transaction = await sequelize.transaction();
 
@@ -314,7 +316,7 @@ class DocumentService {
             const document = await Document.findByPk(documentId, { transaction });
             if (!document) throw new Error('DOCUMENT_NOT_FOUND');
 
-            await document.update({ status: 'pending' }, { transaction });
+            await document.update({ status: 'pending', initiatorReceivesFinalCopy }, { transaction });
 
             let firstSignerToken = null;
             let firstSignerEmail = null;
@@ -332,7 +334,8 @@ class DocumentService {
                     signerName: signer.name,
                     stepOrder: stepOrder,
                     status: 'pending',
-                    signatureUiData: signerFields
+                    signatureUiData: signerFields,
+                    receivesFinalCopy: signer.receivesFinalCopy !== false
                 }, { transaction });
 
                 if (stepOrder === 1) {
@@ -391,19 +394,23 @@ class DocumentService {
 
         const securePdfUrl = await getPresignedPdfUrl(targetFileKey);
         
-        //Fetch any saved signatures for this email ---
-        const savedSignatures = await Signature.findAll({
-            where: { signer_email: step.signerEmail },
-            attributes: ['id', 'signature_url']
+        const vault = await Signer.findOne({ 
+            where: { email: step.signerEmail },
+            include: [{ model: Signature, as: 'signatures' }] 
         });
 
-        //Convert private R2 keys into secure, temporary image URLs ---
+        // The entire vault is either protected or not
+        const isProtected = !!vault?.pin_hash;
+        const savedSignatures = vault ? vault.signatures : [];
+
+        // 2. Convert private R2 keys into secure, temporary image URLs
         const secureSavedSignatures = await Promise.all(
             savedSignatures.map(async (sig) => {
                 return {
                     id: sig.id,
-                    originalKey: sig.signature_url, // Sent back to the server upon adoption
-                    displayUrl: await getPresignedPdfUrl(sig.signature_url) // Used strictly for frontend display
+                    originalKey: sig.signature_url, 
+                    displayUrl: await getPresignedPdfUrl(sig.signature_url), 
+                    isProtected: isProtected 
                 };
             })
         );
@@ -444,7 +451,7 @@ class DocumentService {
     }
     
     // Complete Signing
-    async completeSigning(token, completedFields, updatedFields, ipAddress) {
+    async completeSigning(token, completedFields, updatedFields, ipAddress, pin) {
         const transaction = await sequelize.transaction();
 
         try {
@@ -457,20 +464,32 @@ class DocumentService {
             if (step.status === 'completed') {
                 console.log(`[Concurrency] Blocked duplicate signature attempt for token: ${token}`);
                 await transaction.rollback();
-
-                // Return gracefully so the frontend simply closes the loading screen without crashing
                 return { step, document: await Document.findByPk(step.document_id)};
             }
 
             if (step.status !== 'pending') throw new Error('INVALID_STATE');
 
-
             const document = await Document.findByPk(step.document_id, { transaction });
+            
+            // 1. INITIALIZE THE FIELDS FIRST
+            const fieldsToStamp = updatedFields && updatedFields.length > 0 ? updatedFields : step.signatureUiData;
 
+            // 2. STRICT ENFORCEMENT: UNIFIED VAULT CHECK
+            if (fieldsToStamp && fieldsToStamp.some(f => f.imageUrl && f.imageUrl.includes('user-signatures/'))) {
+                const vault = await Signer.findOne({ where: { email: step.signerEmail }, transaction });
+                
+                if (vault && vault.pin_hash) {
+                    if (!pin) throw new Error('MISSING_PIN');
+                    
+                    const isValid = await bcrypt.compare(pin.toString(), vault.pin_hash);
+                    if (!isValid) throw new Error('INVALID_PIN');
+                }
+            }
+
+            // 3. PROCEED WITH PDF STAMPING
             const targetFileKey = document.signedFilePath || document.originalFilePath;
             const originalBuffer = await getFileBufferFromR2(targetFileKey);
 
-            const fieldsToStamp = updatedFields && updatedFields.length > 0 ? updatedFields : step.signatureUiData;
             const stampedBuffer = await stampDocument(originalBuffer, fieldsToStamp, completedFields);
 
             const stepHash = crypto.createHash('sha256').update(stampedBuffer).digest('hex');
@@ -488,7 +507,7 @@ class DocumentService {
             }, { transaction });
 
             await transaction.commit();
-            return { step, document }; // Return needed data to controller to trigger next steps
+            return { step, document }; 
 
         } catch (error) {
             await transaction.rollback();
@@ -614,7 +633,8 @@ class DocumentService {
                     signerName: oldStep.signerName,
                     stepOrder: oldStep.stepOrder,
                     status: 'pending',
-                    signatureUiData: oldStep.signatureUiData
+                    signatureUiData: oldStep.signatureUiData, 
+                    receivesFinalCopy: oldStep.receivesFinalCopy
                 }, { transaction });
                 newSteps.push(newStep);
             }
@@ -669,7 +689,7 @@ class DocumentService {
 
     // Void Document (initiator gives up on it)
     async voidDocument(documentId, initiatorId, initiatorEmail, ipAddress) {
-        const VOIDABLE_STATUSES = ['draft', 'pending', 'in_progress', 'declined'];
+        const VOIDABLE_STATUSES = ['draft', 'pending', 'in_progress', 'pending_review', 'declined'];
 
         const document = await Document.findByPk(documentId);
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
@@ -701,7 +721,11 @@ class DocumentService {
                 { where: { document_id: documentId, status: 'pending' }, transaction }
             );
 
-            await document.update({ status: 'voided' }, { transaction });
+            const [affectedCount] = await Document.update(
+                { status: 'voided' },
+                { where: { id: documentId, status: { [Op.in]: VOIDABLE_STATUSES } }, transaction }
+            );
+            if (affectedCount === 0) throw new Error('CONFLICT');
 
             await AuditLog.create({
                 document_id: document.id,
@@ -858,9 +882,51 @@ class DocumentService {
             await sendSignatureEmail(nextStep.signerEmail, nextStep.signerName, nextStep.accessToken, document.fileName, otp);
             console.log(`[Workflow] Document handed off to Level ${nextStepOrder}: ${nextStep.signerEmail}`);
         } else {
-            console.log(`[Workflow] All signatures collected. Triggering Finalization.`);
-            await this.finalizeDocument(document.id);
+            const [affectedCount] = await Document.update(
+                { status: 'pending_review' },
+                { where: { id: document.id, status: { [Op.in]: ['pending', 'in_progress'] } } }
+            );
+            if (affectedCount === 0) {
+                console.log(`[Workflow] Document ${document.id} was voided before the final signature could move it to review. Skipping.`);
+                return;
+            }
+
+            console.log(`[Workflow] All signatures collected. Awaiting initiator review.`);
+
+            await AuditLog.create({
+                document_id: document.id,
+                action: 'PENDING_REVIEW',
+                actorEmail: 'system@dsign.local'
+            });
+
+            const initiator = await User.findByPk(document.initiator_id);
+            if (initiator) {
+                await sendReviewReadyEmail(initiator.email, document.fileName);
+            }
         }
+    }
+
+    // Approve Document (initiator reviews the fully-signed document, then seals it)
+    async approveDocument(documentId, initiatorId) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+        if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
+
+        await this.finalizeDocument(documentId);
+        await document.reload();
+        return { document };
+    }
+
+    // Get Review URL (initiator previews the fully-signed, not-yet-sealed document)
+    async getReviewUrl(documentId, initiatorId) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
+        if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
+
+        const url = await getPresignedPdfUrl(document.signedFilePath);
+        return { url, fileName: document.fileName };
     }
 
     // Finalize Document
@@ -883,7 +949,11 @@ class DocumentService {
             const masterHash = crypto.createHash('sha256').update(finalBuffer).digest('hex');
             const finalFileKey = await uploadBufferToR2(finalBuffer, `FINAL-${document.fileName}`);
 
-            await document.update({ status: 'completed', signedFilePath: finalFileKey, currentHash: masterHash });
+            const [affectedCount] = await Document.update(
+                { status: 'completed', signedFilePath: finalFileKey, currentHash: masterHash },
+                { where: { id: documentId, status: 'pending_review' } }
+            );
+            if (affectedCount === 0) throw new Error('CONFLICT');
 
             await AuditLog.create({
                 document_id: documentId,
@@ -894,13 +964,20 @@ class DocumentService {
 
             // Email distribution logic
             const steps = await WorkflowStep.findAll({ where: { document_id: documentId } });
-            const stepEmails = steps.map(s => s.signerEmail);
+            const stepEmails = steps
+                .filter(s => s.receivesFinalCopy !== false)
+                .map(s => s.signerEmail);
             
             // Extract the initiator's email directly from the included User model
             const initiatorEmail = document.User.email;
+
+            const finalEmailsArray = [...stepEmails];
+            if (document.initiatorReceivesFinalCopy !== false) {
+                finalEmailsArray.push(initiatorEmail);
+            }
             
             // Deduplicate the list using a Set
-            const participantEmails = [...new Set([...stepEmails, initiatorEmail])];
+            const participantEmails = [...new Set(finalEmailsArray)];
             const finalSecureLink = await getPresignedPdfUrl(finalFileKey);
 
             for (const email of participantEmails) {
@@ -909,6 +986,7 @@ class DocumentService {
             }
         } catch (error) {
             console.error('[Workflow] Finalization Error:', error);
+            throw error;
         }
     }
 }
