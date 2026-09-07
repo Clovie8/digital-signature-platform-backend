@@ -18,11 +18,25 @@ const User = sequelize.define('User', {
     },
     passwordHash: {
         type: DataTypes.STRING,
-        allowNull: false,
+        allowNull: true,
     },
     role: {
         type: DataTypes.ENUM('user', 'admin'),
         defaultValue: 'user',
+    },
+    authProvider: {
+        type: DataTypes.ENUM('local', 'microsoft', 'google'),
+        defaultValue: 'local',
+    },
+    microsoftId: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        unique: true,
+    },
+    googleId: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        unique: true,
     },
     isVerified: {
         type: DataTypes.BOOLEAN,

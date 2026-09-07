@@ -293,7 +293,6 @@ const saveDraftConfig = asyncHandler(async (req, res) => {
     }
 });
 
-
 const replaceDraftFile = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const initiatorId = req.user.userId;

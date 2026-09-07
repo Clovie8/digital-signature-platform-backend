@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const { User, AuditLog, Document } = require('../models');
+const { sendInvitationEmail } = require('../utils/emailManager');
 
 class AdminService {
     async listUsers() {
@@ -16,6 +17,52 @@ class AdminService {
             status: u.isVerified ? 'active' : 'invited',
             createdAt: u.created_at
         }));
+    }
+
+    async inviteUser(name, email, invitedByEmail) {
+        const existing = await User.findOne({ where: { email } });
+        if (existing && existing.passwordHash) {
+            throw new Error('USER_ALREADY_ACTIVE');
+        }
+
+        let user = existing;
+        if (!user) {
+            user = await User.create({
+                name,
+                email,
+                role: 'user',
+                isVerified: false,
+            });
+        }
+
+        sendInvitationEmail(email, invitedByEmail).catch(err =>
+            console.error('Failed to send invitation email:', err)
+        );
+
+        return { id: user.id, name: user.name, email: user.email };
+    }
+
+    async inviteUsersFromCsv(rows, invitedByEmail) {
+        const results = { invited: [], skipped: [] };
+
+        for (const row of rows) {
+            const name = row.name;
+            const email = row.email;
+
+            if (!name || !email) {
+                results.skipped.push({ row, reason: 'Missing name or email' });
+                continue;
+            }
+
+            try {
+                await this.inviteUser(name, email, invitedByEmail);
+                results.invited.push(email);
+            } catch (error) {
+                results.skipped.push({ row, reason: error.message === 'USER_ALREADY_ACTIVE' ? 'Already registered' : 'Failed to invite' });
+            }
+        }
+
+        return results;
     }
 
     async listAuditLogs(filters) {
