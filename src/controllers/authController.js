@@ -134,7 +134,6 @@ const completeInvite = asyncHandler(async (req, res) => {
     }
 });
 
-
 const searchUsers = asyncHandler(async (req, res) => {
     const { q } = req.query;
     if (!q || q.length < 2) return res.status(200).json({ users: [] });
@@ -157,5 +156,32 @@ const searchUsers = asyncHandler(async (req, res) => {
     res.status(200).json({ users });
 });
 
+const updateProfile = asyncHandler(async (req, res) => {
+    const { name } = req.body;
+    if (!name || !name.trim()) throw new ValidationError('Name is required.');
 
-module.exports = { registerUser, loginUser, forgotPassword, resetPassword, verifyEmail, resendVerification, logoutUser, getUserProfile, checkInvite, completeInvite, searchUsers };
+    try {
+        const user = await authService.updateProfile(req.user.userId, name.trim());
+        res.status(200).json({ message: 'Profile updated.', user });
+    } catch (error) {
+        if (error.message === 'NOT_FOUND') throw new NotFoundError('User not found.');
+        throw error;
+    }
+});
+
+const changePassword = asyncHandler(async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) throw new ValidationError('Current and new password are required.');
+
+    try {
+        await authService.changePassword(req.user.userId, currentPassword, newPassword);
+        res.status(200).json({ message: 'Password updated.' });
+    } catch (error) {
+        if (error.message === 'INVALID_CURRENT_PASSWORD') throw new UnauthorizedError('Current password is incorrect.');
+        if (error.message === 'NO_PASSWORD_SET') throw new ValidationError('This account signs in via Microsoft/Google and has no password to change.');
+        if (error.message === 'NOT_FOUND') throw new NotFoundError('User not found.');
+        throw error;
+    }
+});
+
+module.exports = { registerUser, loginUser, forgotPassword, resetPassword, verifyEmail, resendVerification, logoutUser, getUserProfile, checkInvite, completeInvite, searchUsers, updateProfile, changePassword };

@@ -8,6 +8,7 @@ class AdminService {
             attributes: ['id', 'name', 'email', 'role', 'isVerified', 'created_at'],
             order: [['created_at', 'DESC']]
         });
+        
 
         return users.map(u => ({
             id: u.id,
@@ -17,6 +18,23 @@ class AdminService {
             status: u.isVerified ? 'active' : 'invited',
             createdAt: u.created_at
         }));
+    }
+        async updateUserRole(userId, newRole, actingAdminId) {
+        if (userId === actingAdminId) throw new Error('CANNOT_MODIFY_SELF');
+        const user = await User.findByPk(userId);
+        if (!user) throw new Error('USER_NOT_FOUND');
+
+        await user.update({ role: newRole });
+        return { id: user.id, name: user.name, email: user.email, role: user.role };
+    }
+
+    async setUserActive(userId, isActive, actingAdminId) {
+        if (userId === actingAdminId) throw new Error('CANNOT_MODIFY_SELF');
+        const user = await User.findByPk(userId);
+        if (!user) throw new Error('USER_NOT_FOUND');
+
+        await user.update({ isActive });
+        return { id: user.id, name: user.name, email: user.email };
     }
 
     async inviteUser(name, email, invitedByEmail) {

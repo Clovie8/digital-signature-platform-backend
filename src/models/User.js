@@ -42,6 +42,10 @@ const User = sequelize.define('User', {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
     },
+    isActive: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true,
+    },
     verificationToken: DataTypes.STRING,
     resetPasswordToken: DataTypes.STRING,
     resetPasswordExpiresAt: DataTypes.DATE,

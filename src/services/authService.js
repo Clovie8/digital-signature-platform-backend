@@ -190,6 +190,27 @@ class AuthService {
 
         return { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
     }
+
+    async updateProfile(userId, name) {
+        const user = await User.findByPk(userId);
+        if (!user) throw new Error('NOT_FOUND');
+
+        await user.update({ name });
+        return { id: user.id, name: user.name, email: user.email, role: user.role };
+    }
+
+    async changePassword(userId, currentPassword, newPassword) {
+        const user = await User.findByPk(userId);
+        if (!user) throw new Error('NOT_FOUND');
+        if (!user.passwordHash) throw new Error('NO_PASSWORD_SET');
+
+        const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+        if (!isMatch) throw new Error('INVALID_CURRENT_PASSWORD');
+
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(newPassword, salt);
+        await user.update({ passwordHash });
+    }
 }
 
 module.exports = new AuthService();
