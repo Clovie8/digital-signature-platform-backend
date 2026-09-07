@@ -11,7 +11,8 @@ const {
     logoutUser,
     getUserProfile,
     checkInvite,
-    completeInvite
+    completeInvite,
+    searchUsers
 } = require('../controllers/authController');
 
 const { microsoftLogin, microsoftCallback } = require('../controllers/microsoftAuthController');
@@ -37,5 +38,7 @@ router.get('/google/callback', googleCallback);
 // Protected routes
 router.post('/logout', authenticateToken, logoutUser);
 router.get('/me', authenticateToken, getUserProfile);
+// Search users
+router.get('/users/search', authenticateToken, searchUsers);
 
 module.exports = router;

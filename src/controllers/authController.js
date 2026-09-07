@@ -134,4 +134,28 @@ const completeInvite = asyncHandler(async (req, res) => {
     }
 });
 
-module.exports = { registerUser, loginUser, forgotPassword, resetPassword, verifyEmail, resendVerification, logoutUser, getUserProfile, checkInvite, completeInvite, };
+
+const searchUsers = asyncHandler(async (req, res) => {
+    const { q } = req.query;
+    if (!q || q.length < 2) return res.status(200).json({ users: [] });
+    
+    // We need the User model and Op from Sequelize
+    const { User } = require('../models');
+    const { Op } = require('sequelize');
+    
+    const users = await User.findAll({
+        where: {
+            [Op.or]: [
+                { name: { [Op.like]: `%${q}%` } },
+                { email: { [Op.like]: `%${q}%` } }
+            ]
+        },
+        attributes: ['id', 'name', 'email'],
+        limit: 10
+    });
+    
+    res.status(200).json({ users });
+});
+
+
+module.exports = { registerUser, loginUser, forgotPassword, resetPassword, verifyEmail, resendVerification, logoutUser, getUserProfile, checkInvite, completeInvite, searchUsers };
