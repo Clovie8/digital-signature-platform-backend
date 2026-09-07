@@ -55,6 +55,8 @@ class DocumentService {
 
             const activeStep = orderedPendingSteps.length ? orderedPendingSteps[0] : null;
 
+            const hasSigned = steps.some(s => s.status === 'completed' && s.signerEmail === userEmail);
+
             return {
                 id: document.id,
                 fileName: document.fileName,
@@ -70,7 +72,8 @@ class DocumentService {
                 initiatorId: document.initiator_id,
                 initiatorName: document.User ? document.User.name : null,
                 pendingOn: orderedPendingSteps.length ? orderedPendingSteps[0].signerName : null,
-                pendingSignerToken: (activeStep && activeStep.signerEmail === userEmail) ? activeStep.accessToken : null
+                pendingSignerToken: (activeStep && activeStep.signerEmail === userEmail) ? activeStep.accessToken : null,
+                hasSigned: hasSigned
             };
         });
     }
