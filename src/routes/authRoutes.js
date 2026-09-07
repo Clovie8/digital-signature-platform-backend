@@ -12,7 +12,9 @@ const {
     getUserProfile,
     checkInvite,
     completeInvite,
-    searchUsers
+    searchUsers,
+    updateProfile,
+    changePassword
 } = require('../controllers/authController');
 
 const { microsoftLogin, microsoftCallback } = require('../controllers/microsoftAuthController');
@@ -38,6 +40,8 @@ router.get('/google/callback', googleCallback);
 // Protected routes
 router.post('/logout', authenticateToken, logoutUser);
 router.get('/me', authenticateToken, getUserProfile);
+router.patch('/me', authenticateToken, updateProfile);
+router.patch('/change-password', authenticateToken, changePassword);
 // Search users
 router.get('/users/search', authenticateToken, searchUsers);
 

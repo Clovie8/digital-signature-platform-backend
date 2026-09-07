@@ -1,6 +1,6 @@
 const adminService = require('../services/adminService');
 const asyncHandler = require('../utils/asyncHandler');
-const { ValidationError } = require('../utils/errors');
+const { ValidationError, NotFoundError } = require('../utils/errors');
 
 const listUsers = asyncHandler(async (req, res) => {
     const users = await adminService.listUsers();
@@ -49,4 +49,42 @@ const inviteUsersCsv = asyncHandler(async (req, res) => {
     res.status(200).json({ message: `${results.invited.length} invited, ${results.skipped.length} skipped.`, ...results });
 });
 
-module.exports = { listUsers, listAuditLogs, inviteUser, inviteUsersCsv };
+const updateUserRole = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { role } = req.body;
+    if (!['user', 'admin'].includes(role)) throw new ValidationError('Role must be "user" or "admin".');
+
+    try {
+        const user = await adminService.updateUserRole(id, role, req.user.userId);
+        res.status(200).json({ message: 'Role updated.', user });
+    } catch (error) {
+        if (error.message === 'CANNOT_MODIFY_SELF') throw new ValidationError('You cannot change your own role.');
+        if (error.message === 'USER_NOT_FOUND') throw new NotFoundError('User not found.');
+        throw error;
+    }
+});
+
+const deactivateUser = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    try {
+        await adminService.setUserActive(id, false, req.user.userId);
+        res.status(200).json({ message: 'User deactivated.' });
+    } catch (error) {
+        if (error.message === 'CANNOT_MODIFY_SELF') throw new ValidationError('You cannot deactivate your own account.');
+        if (error.message === 'USER_NOT_FOUND') throw new NotFoundError('User not found.');
+        throw error;
+    }
+});
+
+const reactivateUser = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    try {
+        await adminService.setUserActive(id, true, req.user.userId);
+        res.status(200).json({ message: 'User reactivated.' });
+    } catch (error) {
+        if (error.message === 'USER_NOT_FOUND') throw new NotFoundError('User not found.');
+        throw error;
+    }
+});
+
+module.exports = { listUsers, listAuditLogs, inviteUser, inviteUsersCsv, updateUserRole, deactivateUser, reactivateUser, };
