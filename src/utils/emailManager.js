@@ -118,6 +118,40 @@ const sendVerificationEmail = async (userEmail, token) => {
         console.error('Verification Email Error:', error);
     }
 };
+const sendInvitationEmail = async (toEmail, inviterName) => {
+    try {
+        const registerLink = `${process.env.FRONTEND_URL}/login?register=true&email=${encodeURIComponent(toEmail)}`;
+
+        const mailOptions = {
+            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            to: toEmail,
+            subject: `${inviterName} invited you to DSign`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+                    <h2 style="color: #333;">You've been invited to DSign</h2>
+                    <p style="color: #555; font-size: 16px;">
+                        <strong>${inviterName}</strong> has invited you to join their organization on DSign, a secure digital signature platform.
+                    </p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="${registerLink}" style="background-color: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">
+                            Accept Invitation
+                        </a>
+                    </div>
+                    <p style="color: #777; font-size: 14px;">
+                        If you weren't expecting this invitation, you can safely ignore this email.
+                    </p>
+                </div>
+            `
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`Invitation email sent to ${toEmail}: ${info.messageId}`);
+        return true;
+    } catch (error) {
+        console.error('Invitation Email Error:', error);
+        return false;
+    }
+};
 
 const sendReviewReadyEmail = async (initiatorEmail, documentName) => {
     try {
@@ -386,4 +420,4 @@ const sendPinResetEmail = async (toEmail, otp) => {
 };
 
 
-module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail, sendPinResetEmail };
+module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail, sendPinResetEmail, sendInvitationEmail };
