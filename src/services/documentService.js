@@ -214,7 +214,11 @@ class DocumentService {
                 status: step.status,
                 declineReason: step.declineReason,
                 declineType: step.declineType,
-                signedAt: step.signedAt
+                signedAt: step.signedAt,
+                createdAt: step.created_at,
+                lastReminderSentAt: step.lastReminderSentAt,
+                createdAt: step.createdAt || step.created_at, 
+                updatedAt: step.updatedAt || step.updated_at
             }))
         };
 
@@ -542,12 +546,24 @@ class DocumentService {
                 ipAddress: ipAddress
             }, { transaction });
 
+            const completedSteps = await WorkflowStep.findAll({
+                where: { document_id: document.id, status: 'completed' },
+                transaction
+            });
+
             await transaction.commit();
 
-            await sendDeclineEmail(document.User.email, document.fileName, step.signerName, reason);
+            const emailsToNotify = [document.User.email];
+            completedSteps.forEach(s => {
+                if (!emailsToNotify.includes(s.signerEmail)) {
+                    emailsToNotify.push(s.signerEmail);
+                }
+            });
 
+            for (const email of emailsToNotify) {
+                await sendDeclineEmail(email, document.fileName, step.signerName, reason);
+            }
             return { document };
-
         } catch (error) {
             await transaction.rollback();
             throw error;
