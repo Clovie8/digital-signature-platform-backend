@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    container_name: dsign-backend
+    ports:
+      - "${PORT}:${PORT}"
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=postgres
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    container_name: dsign-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - dsign_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT}:5432"
+    restart: unless-stopped
+
+volumes:
+  dsign_postgres_data:
