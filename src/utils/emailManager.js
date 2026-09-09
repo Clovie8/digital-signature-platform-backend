@@ -152,6 +152,60 @@ const sendInvitationEmail = async (toEmail, inviterName) => {
         return false;
     }
 };
+const sendAccountDeactivatedEmail = async (toEmail, name, reason) => {
+    try {
+        const mailOptions = {
+            from: `"DSign Security" <${process.env.SMTP_USER}>`,
+            to: toEmail,
+            subject: `Your DSign account has been deactivated`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+                    <h2 style="color: #b91c1c;">Account Deactivated</h2>
+                    <p style="color: #555; font-size: 16px;">
+                        Hello ${name}, your DSign account has been deactivated by an administrator.
+                    </p>
+                    ${reason ? `
+                    <div style="background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 12px 16px; margin: 20px 0;">
+                        <p style="color: #7f1d1d; font-size: 14px; margin: 0;"><strong>Reason:</strong> ${reason}</p>
+                    </div>
+                    ` : ''}
+                    <p style="color: #777; font-size: 14px;">
+                        If you believe this is a mistake, please contact your administrator.
+                    </p>
+                </div>
+            `
+        };
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`Deactivation email sent to ${toEmail}: ${info.messageId}`);
+        return true;
+    } catch (error) {
+        console.error('Deactivation Email Error:', error);
+        return false;
+    }
+};
+const sendAccountReactivatedEmail = async (toEmail, name) => {
+    try {
+        const mailOptions = {
+            from: `"DSign Security" <${process.env.SMTP_USER}>`,
+            to: toEmail,
+            subject: `Your DSign account has been reactivated`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
+                    <h2 style="color: #059669;">Account Reactivated</h2>
+                    <p style="color: #555; font-size: 16px;">
+                        Hello ${name}, good news — your DSign account has been reactivated. You can sign in again as normal.
+                    </p>
+                </div>
+            `
+        };
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`Reactivation email sent to ${toEmail}: ${info.messageId}`);
+        return true;
+    } catch (error) {
+        console.error('Reactivation Email Error:', error);
+        return false;
+    }
+};
 
 const sendReviewReadyEmail = async (initiatorEmail, documentName) => {
     try {
@@ -420,4 +474,4 @@ const sendPinResetEmail = async (toEmail, otp) => {
 };
 
 
-module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail, sendPinResetEmail, sendInvitationEmail };
+module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail, sendPinResetEmail, sendInvitationEmail, sendAccountDeactivatedEmail, sendAccountReactivatedEmail, };

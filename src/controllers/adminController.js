@@ -66,8 +66,9 @@ const updateUserRole = asyncHandler(async (req, res) => {
 
 const deactivateUser = asyncHandler(async (req, res) => {
     const { id } = req.params;
+    const { reason } = req.body;
     try {
-        await adminService.setUserActive(id, false, req.user.userId);
+        await adminService.setUserActive(id, false, req.user.userId,reason);
         res.status(200).json({ message: 'User deactivated.' });
     } catch (error) {
         if (error.message === 'CANNOT_MODIFY_SELF') throw new ValidationError('You cannot deactivate your own account.');
