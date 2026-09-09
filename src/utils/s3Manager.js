@@ -1,4 +1,4 @@
-const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const crypto = require('crypto');
 require('dotenv').config();
@@ -11,6 +11,7 @@ const s3 = new S3Client({
         accessKeyId: process.env.R2_ACCESS_KEY_ID,
         secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
     },
+    forcePathStyle: true,
 });
 
 const uploadToR2 = async (fileBuffer, originalName) => {
@@ -77,4 +78,32 @@ const uploadBufferToR2 = async (buffer, originalName, mimeType = 'application/pd
     return fileKey;
 };
 
-module.exports = { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2 };
+const uploadImageToR2 = async (fileBuffer, exactFileKey) => {
+    const params = {
+        Bucket: process.env.R2_BUCKET_NAME,
+        Key: exactFileKey, 
+        Body: fileBuffer,
+        ContentType: 'image/png'
+    };
+    
+    const command = new PutObjectCommand(params);
+    await s3.send(command);
+    
+    return exactFileKey;
+};
+
+const deleteFromR2 = async (fileKey) => {
+    if (!fileKey) return;
+    try {
+        const command = new DeleteObjectCommand({
+            Bucket: process.env.R2_BUCKET_NAME,
+            Key: fileKey,
+        });
+        await s3.send(command);
+    } catch (error) {
+        console.error('R2 Delete Error:', error);
+        throw new Error('Failed to delete file from Cloudflare R2');
+    }
+};
+
+module.exports = { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, uploadImageToR2, deleteFromR2 };

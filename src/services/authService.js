@@ -1,7 +1,7 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { User } = require('../models'); // Import Sequelize User model
+const { User, AuditLog } = require('../models'); // Import Sequelize User model
 const { sendPasswordResetEmail, sendVerificationEmail } = require('../utils/emailManager');
 const { Op } = require('sequelize');
 require('dotenv').config();
@@ -10,8 +10,30 @@ class AuthService {
     async register(name, email, password) {
         // Check if user already exists
         const existingUser = await User.findOne({ where: { email } });
+
         if (existingUser) {
-            throw new Error('USER_EXISTS');
+            if (existingUser.passwordHash) {
+                // Fully registered already — real conflict
+                throw new Error('USER_EXISTS');
+            }
+
+            // This user was invited by an admin but hasn't completed signup yet.
+            // Complete their account instead of rejecting the registration.
+            const salt = await bcrypt.genSalt(10);
+            const passwordHash = await bcrypt.hash(password, salt);
+            const otpToken = crypto.randomInt(100000, 999999).toString();
+
+            await existingUser.update({
+                name: name || existingUser.name,
+                passwordHash,
+                verificationToken: otpToken,
+            });
+
+            sendVerificationEmail(email, otpToken).catch(err =>
+                console.error('Failed to send verification email:', err)
+            );
+
+            return { id: existingUser.id, name: existingUser.name, email: existingUser.email };
         }
 
         // Hash the password
@@ -56,12 +78,18 @@ class AuthService {
 
         // Generate JWT Token
         const token = jwt.sign(
-            { userId: user.id, email: user.email },
+            { userId: user.id, email: user.email, role: user.role },
             process.env.JWT_SECRET,
             { expiresIn: '24h' }
         );
 
-        return { token, user: { id: user.id, name: user.name, email: user.email } };
+        // Record the login event for the audit trail
+        AuditLog.create({
+            action: 'USER_LOGIN',
+            actorEmail: user.email
+        }).catch(err => console.error('Failed to write login audit log:', err));
+
+        return { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
     }
 
     async requestPasswordReset(email) {
@@ -125,10 +153,63 @@ class AuthService {
 
     async getProfile(userId) {
         const user = await User.findByPk(userId, {
-            attributes: ['id', 'name', 'email', 'isVerified']
+            attributes: ['id', 'name', 'email', 'isVerified', 'role']
         });
         if (!user) throw new Error('NOT_FOUND');
         return user;
+    }
+
+    async checkInviteStatus(email) {
+        const user = await User.findOne({ where: { email } });
+        if (user && !user.passwordHash) {
+            return { isInvited: true, name: user.name, isVerified: user.isVerified };
+        }
+        return { isInvited: false };
+    }
+
+    async completeInvite(email, password) {
+        const user = await User.findOne({ where: { email } });
+        if (!user) throw new Error('NOT_FOUND');
+        if (!user.isVerified) throw new Error('NOT_VERIFIED');
+        if (user.passwordHash) throw new Error('ALREADY_COMPLETED');
+
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(password, salt);
+        await user.update({ passwordHash });
+
+        const token = jwt.sign(
+            { userId: user.id, email: user.email, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        AuditLog.create({
+            action: 'USER_LOGIN',
+            actorEmail: user.email
+        }).catch(err => console.error('Failed to write login audit log:', err));
+
+        return { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
+    }
+
+    async updateProfile(userId, name) {
+        const user = await User.findByPk(userId);
+        if (!user) throw new Error('NOT_FOUND');
+
+        await user.update({ name });
+        return { id: user.id, name: user.name, email: user.email, role: user.role };
+    }
+
+    async changePassword(userId, currentPassword, newPassword) {
+        const user = await User.findByPk(userId);
+        if (!user) throw new Error('NOT_FOUND');
+        if (!user.passwordHash) throw new Error('NO_PASSWORD_SET');
+
+        const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+        if (!isMatch) throw new Error('INVALID_CURRENT_PASSWORD');
+
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(newPassword, salt);
+        await user.update({ passwordHash });
     }
 }
 

@@ -4,10 +4,12 @@ const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+const adminRoutes = require('./routes/adminRoutes');
 
-const { sequelize } = require('./models'); // Import Sequelize
+const { sequelize } = require('./models'); 
 
-const errorMiddleware = require('./middleware/errorMiddleware'); // Import Global Error Middleware
+const errorMiddleware = require('./middleware/errorMiddleware'); 
+const { startDeclineExpiryJob } = require('./utils/declineExpiryJob');
 
 // Route Imports
 const documentRoutes = require('./routes/documentRoutes');
@@ -28,20 +30,21 @@ app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
 
 // Rate Limiting
 const globalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
+    windowMs: 5 * 60 * 1000, // 15 minutes
     max: 100,
     message: { error: 'Too many requests from this IP, please try again later.' }
 });
 app.use('/api/', globalLimiter);
 
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20,
+    windowMs: 5 * 60 * 1000, // in production we will use 15 minutes
+    max: 100, // in production we will use 20
     message: { error: 'Too many authentication attempts, please try again later.' }
 });
 app.use('/api/auth/', authLimiter);
@@ -51,6 +54,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/signatures', signatureRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Mount the Global Error Handler 
 // This must be the very last app.use() so it can catch everything!
@@ -59,12 +63,18 @@ app.use(errorMiddleware);
 // Start Server (Only after Database connects successfully)
 const PORT = process.env.PORT || 5000;
 
+const { startCronJobs } = require('./services/cronService'); // Import cronService
+
 sequelize.authenticate()
     .then(() => {
         console.log('Database connected via Sequelize!');
+
+        startCronJobs(); // Start the automated background jobs
+
         app.listen(PORT, () => {
             console.log(`Digital Signature API running on port ${PORT}`);
         });
+        startDeclineExpiryJob();
     })
     .catch(err => {
         console.error('Unable to connect to the database:', err);

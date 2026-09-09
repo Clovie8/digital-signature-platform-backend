@@ -18,19 +18,41 @@ const User = sequelize.define('User', {
     },
     passwordHash: {
         type: DataTypes.STRING,
-        allowNull: false,
+        allowNull: true,
+    },
+    role: {
+        type: DataTypes.ENUM('user', 'admin'),
+        defaultValue: 'user',
+    },
+    authProvider: {
+        type: DataTypes.ENUM('local', 'microsoft', 'google'),
+        defaultValue: 'local',
+    },
+    microsoftId: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        unique: true,
+    },
+    googleId: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        unique: true,
     },
     isVerified: {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
+    },
+    isActive: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true,
     },
     verificationToken: DataTypes.STRING,
     resetPasswordToken: DataTypes.STRING,
     resetPasswordExpiresAt: DataTypes.DATE,
 }, {
     tableName: 'users',
-    underscored: true, // Automatically converts camelCase to snake_case for DB columns
-    timestamps: true,  // Automatically manages created_at and updated_at
+    underscored: true, 
+    timestamps: true, 
     createdAt: 'created_at',
     updatedAt: 'updated_at'
 });

@@ -31,10 +31,10 @@ const stampDocument = async (pdfBuffer, fields, completedValues) => {
             const targetX = (field.xPct / 100) * width;
             const targetY = height - ((field.yPct / 100) * height);
 
-            // Convert CSS width/height (based on 750px wide frontend canvas) to PDF points
+            
             const pdfFieldWidth = field.width ? (field.width / 750) * width : undefined;
-            // Frontend aspect ratio is roughly 8.5x11, so 750px width = ~970px height
-            const pdfFieldHeight = field.height ? (field.height / 970) * height : undefined;
+            const pdfFieldHeight = field.height ? (field.height / 750) * width : undefined; 
+
 
             // Check if the frontend sent a drawn PNG image
             if (value.startsWith('data:image/png;base64,')) {
@@ -47,7 +47,7 @@ const stampDocument = async (pdfBuffer, fields, completedValues) => {
 
                 page.drawImage(pngImage, {
                     x: targetX,
-                    y: targetY - (drawHeight / 2),
+                    y: targetY - drawHeight,
                     width: drawWidth,
                     height: drawHeight,
                 });
@@ -62,7 +62,7 @@ const stampDocument = async (pdfBuffer, fields, completedValues) => {
 
                 page.drawText(textToStamp, {
                     x: targetX,
-                    y: targetY - (pdfFieldHeight ? (pdfFieldHeight / 2) : 12), 
+                    y: targetY - (pdfFieldHeight ? pdfFieldHeight : 12), 
                     size: dynamicFontSize,
                     font: isSignature ? cursiveFont : font,
                     color: rgb(0, 0.1, 0.4), 
