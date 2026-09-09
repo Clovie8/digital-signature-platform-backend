@@ -1,25 +1,25 @@
 const { Op } = require('sequelize');
 const { User, AuditLog, Document } = require('../models');
-const { sendInvitationEmail } = require('../utils/emailManager');
+const { sendInvitationEmail, sendAccountDeactivatedEmail, sendAccountReactivatedEmail } = require('../utils/emailManager');
 
 class AdminService {
     async listUsers() {
         const users = await User.findAll({
-            attributes: ['id', 'name', 'email', 'role', 'isVerified', 'created_at'],
+            attributes: ['id', 'name', 'email', 'role', 'isVerified', 'isActive', 'created_at'],
             order: [['created_at', 'DESC']]
         });
-        
 
         return users.map(u => ({
             id: u.id,
             name: u.name,
             email: u.email,
             role: u.role,
-            status: u.isVerified ? 'active' : 'invited',
+            status: !u.isActive ? 'deactivated' : (u.isVerified ? 'active' : 'invited'),
             createdAt: u.created_at
         }));
     }
-        async updateUserRole(userId, newRole, actingAdminId) {
+
+    async updateUserRole(userId, newRole, actingAdminId) {
         if (userId === actingAdminId) throw new Error('CANNOT_MODIFY_SELF');
         const user = await User.findByPk(userId);
         if (!user) throw new Error('USER_NOT_FOUND');
@@ -28,15 +28,25 @@ class AdminService {
         return { id: user.id, name: user.name, email: user.email, role: user.role };
     }
 
-    async setUserActive(userId, isActive, actingAdminId) {
+        async setUserActive(userId, isActive, actingAdminId, reason) {
         if (userId === actingAdminId) throw new Error('CANNOT_MODIFY_SELF');
         const user = await User.findByPk(userId);
         if (!user) throw new Error('USER_NOT_FOUND');
 
         await user.update({ isActive });
+
+        if (!isActive) {
+            sendAccountDeactivatedEmail(user.email, user.name, reason).catch(err =>
+                console.error('Failed to send deactivation email:', err)
+            );
+        } else {
+            sendAccountReactivatedEmail(user.email, user.name).catch(err =>
+                console.error('Failed to send reactivation email:', err)
+            );
+        }
+
         return { id: user.id, name: user.name, email: user.email };
     }
-
     async inviteUser(name, email, invitedByEmail) {
         const existing = await User.findOne({ where: { email } });
         if (existing && existing.passwordHash) {
