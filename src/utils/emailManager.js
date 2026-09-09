@@ -2,19 +2,25 @@ const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 // Create the transporter using environment variables
-const transporter = nodemailer.createTransport({
-    pool: true,
-    maxConnections: 1,
-    host: process.env.SMTP_HOST,
-    port: process.env.SMTP_PORT,
-    secure: true, // true for 465, false for other ports like 587
-    auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-    },
-    logger: true,
-    debug: true
-});
+// const transporter = nodemailer.createTransport({
+//     pool: true,
+//     maxConnections: 1,
+//     host: process.env.SMTP_HOST,
+//     port: process.env.SMTP_PORT,
+//     secure: true, // true for 465, false for other ports like 587
+//     auth: {
+//         user: process.env.SMTP_USER,
+//         pass: process.env.SMTP_PASS,
+//     },
+//     logger: true,
+//     debug: true
+// });
+
+const { Resend } = require('resend');
+require('dotenv').config();
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 
 // Shared template for "you have a document to review and sign" emails.
 // sendSignatureEmail and sendRevisionEmail only differ in subject/intro copy.
@@ -24,7 +30,7 @@ const sendSigningRequestEmail = async ({ signerEmail, signerName, token, documen
         if (otp) secureLink += `?otp=${otp}`;
 
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: signerEmail,
             subject,
             html: `
@@ -45,7 +51,7 @@ const sendSigningRequestEmail = async ({ signerEmail, signerName, token, documen
             `
         };
 
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`${logLabel} sent to ${signerEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -68,7 +74,7 @@ const sendSignatureEmail = (signerEmail, signerName, token, documentName, otp = 
 const sendPasswordResetEmail = async (userEmail, token) => {
     try {
         const mailOptions = {
-            from: `"DSign Security" <${process.env.SMTP_USER}>`,
+            from: `"DSign Security" <notifications@clovisdev.tech>`,
             to: userEmail,
             subject: `DSign - Secure Password Reset Code`,
             html: `
@@ -87,7 +93,7 @@ const sendPasswordResetEmail = async (userEmail, token) => {
             `
         };
 
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`Reset email sent to ${userEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -100,7 +106,7 @@ const sendPasswordResetEmail = async (userEmail, token) => {
 const sendVerificationEmail = async (userEmail, token) => {
     try {
         const mailOptions = {
-            from: `"DSign Security" <${process.env.SMTP_USER}>`,
+            from: `"DSign Security" <notifications@clovisdev.tech>`,
             to: userEmail,
             subject: `DSign - Verify Your Account`,
             html: `
@@ -115,7 +121,7 @@ const sendVerificationEmail = async (userEmail, token) => {
                 </div>
             `
         };
-        await transporter.sendMail(mailOptions);
+        await resend.emails.send(mailOptions);
     } catch (error) {
         console.error('Verification Email Error:', error);
     }
@@ -125,7 +131,7 @@ const sendInvitationEmail = async (toEmail, inviterName) => {
         const registerLink = `${process.env.FRONTEND_URL}/login?register=true&email=${encodeURIComponent(toEmail)}`;
 
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: toEmail,
             subject: `${inviterName} invited you to DSign`,
             html: `
@@ -146,7 +152,7 @@ const sendInvitationEmail = async (toEmail, inviterName) => {
             `
         };
 
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`Invitation email sent to ${toEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -157,7 +163,7 @@ const sendInvitationEmail = async (toEmail, inviterName) => {
 const sendAccountDeactivatedEmail = async (toEmail, name, reason) => {
     try {
         const mailOptions = {
-            from: `"DSign Security" <${process.env.SMTP_USER}>`,
+            from: `"DSign Security" <notifications@clovisdev.tech>`,
             to: toEmail,
             subject: `Your DSign account has been deactivated`,
             html: `
@@ -177,7 +183,7 @@ const sendAccountDeactivatedEmail = async (toEmail, name, reason) => {
                 </div>
             `
         };
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`Deactivation email sent to ${toEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -188,7 +194,7 @@ const sendAccountDeactivatedEmail = async (toEmail, name, reason) => {
 const sendAccountReactivatedEmail = async (toEmail, name) => {
     try {
         const mailOptions = {
-            from: `"DSign Security" <${process.env.SMTP_USER}>`,
+            from: `"DSign Security" <notifications@clovisdev.tech>`,
             to: toEmail,
             subject: `Your DSign account has been reactivated`,
             html: `
@@ -200,7 +206,7 @@ const sendAccountReactivatedEmail = async (toEmail, name) => {
                 </div>
             `
         };
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`Reactivation email sent to ${toEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -212,7 +218,7 @@ const sendAccountReactivatedEmail = async (toEmail, name) => {
 const sendReviewReadyEmail = async (initiatorEmail, documentName) => {
     try {
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: initiatorEmail,
             subject: `Ready for your review: ${documentName}`,
             html: `
@@ -224,7 +230,7 @@ const sendReviewReadyEmail = async (initiatorEmail, documentName) => {
                 </div>
             `
         };
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`Review-ready email sent to ${initiatorEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -236,7 +242,7 @@ const sendReviewReadyEmail = async (initiatorEmail, documentName) => {
 const sendCompletionEmail = async (signerEmail, documentName, secureLink) => {
     try {
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: signerEmail,
             subject: `Completed: ${documentName}`,
             html: `
@@ -256,7 +262,7 @@ const sendCompletionEmail = async (signerEmail, documentName, secureLink) => {
                 </div>
             `
         };
-        await transporter.sendMail(mailOptions);
+        await resend.emails.send(mailOptions);
         return true;
     } catch (error) {
         console.error('Completion Email Error:', error);
@@ -267,7 +273,7 @@ const sendCompletionEmail = async (signerEmail, documentName, secureLink) => {
 const sendDeclineEmail = async (initiatorEmail, documentName, declinerName, reason) => {
     try {
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: initiatorEmail,
             subject: `Declined: ${documentName}`,
             html: `
@@ -282,7 +288,7 @@ const sendDeclineEmail = async (initiatorEmail, documentName, declinerName, reas
                 </div>
             `
         };
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`Decline email sent to ${initiatorEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -303,7 +309,7 @@ const sendRevisionEmail = (signerEmail, signerName, token, documentName, otp = n
 const sendRevisionNoticeEmail = async (signerEmail, signerName, documentName) => {
     try {
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: signerEmail,
             subject: `Heads up: ${documentName} was corrected`,
             html: `
@@ -315,7 +321,7 @@ const sendRevisionNoticeEmail = async (signerEmail, signerName, documentName) =>
                 </div>
             `
         };
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`Revision notice email sent to ${signerEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -327,7 +333,7 @@ const sendRevisionNoticeEmail = async (signerEmail, signerName, documentName) =>
 const sendDeclineWarningEmail = async (initiatorEmail, documentName, daysLeft) => {
     try {
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: initiatorEmail,
             subject: `Action needed soon: ${documentName} will auto-void in ${daysLeft} days`,
             html: `
@@ -339,7 +345,7 @@ const sendDeclineWarningEmail = async (initiatorEmail, documentName, daysLeft) =
                 </div>
             `
         };
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`Decline warning email sent to ${initiatorEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -351,7 +357,7 @@ const sendDeclineWarningEmail = async (initiatorEmail, documentName, daysLeft) =
 const sendAutoVoidEmail = async (initiatorEmail, documentName) => {
     try {
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: initiatorEmail,
             subject: `Voided: ${documentName}`,
             html: `
@@ -363,7 +369,7 @@ const sendAutoVoidEmail = async (initiatorEmail, documentName) => {
                 </div>
             `
         };
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`Auto-void email sent to ${initiatorEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -375,7 +381,7 @@ const sendAutoVoidEmail = async (initiatorEmail, documentName) => {
 const sendVoidNotificationEmail = async (signerEmail, signerName, documentName) => {
     try {
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: signerEmail,
             subject: `Voided: ${documentName}`,
             html: `
@@ -387,7 +393,7 @@ const sendVoidNotificationEmail = async (signerEmail, signerName, documentName) 
                 </div>
             `
         };
-        const info = await transporter.sendMail(mailOptions);
+        const info = await resend.emails.send(mailOptions);
         console.log(`Void notification sent to ${signerEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
@@ -401,7 +407,7 @@ const sendReminderEmail = async (signerEmail, signerName, token, documentName, o
         const secureLink = `${process.env.FRONTEND_URL}/sign/${token}?otp=${otp}`;
 
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: signerEmail,
             subject: `Reminder: Action Required for ${documentName}`,
             html: `
@@ -423,7 +429,7 @@ const sendReminderEmail = async (signerEmail, signerName, token, documentName, o
             `
         };
 
-        await transporter.sendMail(mailOptions);
+        await resend.emails.send(mailOptions);
         console.log(`[Cron] Reminder emailed to ${signerEmail}`);
     } catch (error) {
         console.error('Reminder Email Dispatch Error:', error);
@@ -433,7 +439,7 @@ const sendReminderEmail = async (signerEmail, signerName, token, documentName, o
 const sendExpirationEmail = async (userEmail, documentName) => {
     try {
         const mailOptions = {
-            from: `"Digital Signature Platform" <${process.env.SMTP_USER}>`,
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: userEmail,
             subject: `Document Expired: ${documentName}`,
             html: `
@@ -448,7 +454,7 @@ const sendExpirationEmail = async (userEmail, documentName) => {
                 </div>
             `
         };
-        await transporter.sendMail(mailOptions);
+        await resend.emails.send(mailOptions);
         return true;
     } catch (error) {
         console.error('Expiration Email Error:', error);
@@ -459,7 +465,7 @@ const sendExpirationEmail = async (userEmail, documentName) => {
 
 const sendPinResetEmail = async (toEmail, otp) => {
     const mailOptions = {
-        from: `"DSign Security" <${process.env.EMAIL_USER}>`,
+        from: `"DSign Security" <notifications@clovisdev.tech>`,
         to: toEmail,
         subject: 'Signature PIN Reset Code',
         html: `
@@ -472,7 +478,7 @@ const sendPinResetEmail = async (toEmail, otp) => {
             </div>
         `
     };
-    await transporter.sendMail(mailOptions);
+    await resend.emails.send(mailOptions);
 };
 
 
