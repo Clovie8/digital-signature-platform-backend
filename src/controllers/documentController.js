@@ -226,10 +226,10 @@ const downloadDocument = asyncHandler(async (req, res) => {
     } catch (error) {
         if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
         if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
-        if (error.message === 'INVALID_STATE') throw new ValidationError('This document has not been completed yet.');
         throw error;
     }
 });
+
 
 const getReviewFile = asyncHandler(async (req, res) => {
     const { id } = req.params;

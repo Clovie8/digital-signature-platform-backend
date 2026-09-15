@@ -817,7 +817,7 @@ class DocumentService {
         return { signerName: pendingStep.signerName };
     }
 
-    // Get Download URL (initiator or any participant, once the document is finalized)
+    // Get Download URL (initiator or any participant, any time)
     async getDownloadUrl(documentId, userId, userEmail) {
         const document = await Document.findByPk(documentId, {
             include: [{ model: WorkflowStep }]
@@ -828,12 +828,15 @@ class DocumentService {
         const isParticipant = (document.WorkflowSteps || []).some(s => s.signerEmail === userEmail);
         if (!isInitiator && !isParticipant) throw new Error('NOT_OWNER');
 
-        if (document.status !== 'completed') throw new Error('INVALID_STATE');
-
-        const url = await getPresignedPdfUrl(document.signedFilePath);
+        // We fetch the signed file if it exists, otherwise the original draft file
+        const targetFileKey = document.signedFilePath || document.originalFilePath;
+        const url = await getPresignedPdfUrl(targetFileKey);
+        
         return { url, fileName: document.fileName };
     }
-        // Get Review File (initiator only, while awaiting their approval)
+
+    
+    // Get Review File (initiator only, while awaiting their approval)
     async getReviewFile(documentId, initiatorId) {
         const document = await Document.findByPk(documentId);
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
