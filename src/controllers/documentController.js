@@ -159,41 +159,35 @@ const resumeDocument = asyncHandler(async (req, res) => {
 });
 
 const reviseDocument = asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const initiatorId = req.user.userId;
-    const initiatorEmail = req.user.email;
-    const ipAddress = req.ip || req.connection.remoteAddress;
-    const newFileBuffer = req.file ? req.file.buffer : null;
-    const newFileName = req.file ? req.file.originalname : null;
+    const documentId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const ipAddress = req.ip;
 
-    try {
-        const { document, isInitiatorFirst, redirectToken } = await documentService.reviseDocument(id, initiatorId, initiatorEmail, ipAddress, newFileBuffer, newFileName);
-        res.status(201).json({ message: 'Revised version created. All signers have been notified.', document, isInitiatorFirst, redirectToken });
-    } catch (error) {
-        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
-        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can revise this document.');
-        if (error.message === 'INVALID_STATE') throw new ValidationError('Document is not in a declined state.');
-        throw error;
-    }
+    const result = await documentService.reviseDocument(
+        documentId, userId, userEmail, ipAddress
+    );
+
+    res.status(200).json({ message: 'Revision draft created successfully.', documentId: result.documentId });
 });
 
 const voidDocument = asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const initiatorId = req.user.userId;
-    const initiatorEmail = req.user.email;
-    const ipAddress = req.ip || req.connection.remoteAddress;
+    const documentId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const ipAddress = req.ip;
+    const { reason } = req.body; // Capture the reason from the request body
 
-    try {
-        const { document, deleted } = await documentService.voidDocument(id, initiatorId, initiatorEmail, ipAddress);
-        res.status(200).json({ message: deleted ? 'Draft deleted successfully.' : 'Document voided successfully.', document });
-    } catch (error) {
-        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
-        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can void this document.');
-        if (error.message === 'INVALID_STATE') throw new ValidationError('This document can no longer be voided.');
-        if (error.message === 'CONFLICT') throw new ConflictError('This document just changed state and can no longer be voided — refresh to see its current status.');
-        throw error;
+    const result = await documentService.voidDocument(documentId, userId, userEmail, ipAddress, reason);
+
+    if (result.deleted) {
+        res.status(200).json({ message: 'Draft deleted successfully.' });
+    } else {
+        res.status(200).json({ message: 'Document voided successfully.' });
     }
 });
+
+
 
 const sendReminder = asyncHandler(async (req, res) => {
     const { id } = req.params;

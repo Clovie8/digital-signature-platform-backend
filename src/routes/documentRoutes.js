@@ -39,7 +39,7 @@ router.get('/:id/versions', authenticateToken, getVersionHistory);
 router.post('/upload', authenticateToken, upload.single('pdf_file'), uploadDocument);
 router.post('/:id/dispatch', authenticateToken, dispatchDocument);
 router.post('/:id/resume', authenticateToken, resumeDocument);
-router.post('/:id/revise', authenticateToken, upload.single('pdf_file'), reviseDocument);
+router.post('/:id/revise', authenticateToken, reviseDocument);
 router.post('/:id/void', authenticateToken, voidDocument);
 router.post('/:id/remind', authenticateToken, sendReminder);
 router.get('/:id/download', authenticateToken, downloadDocument);
