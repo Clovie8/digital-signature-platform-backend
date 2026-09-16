@@ -310,6 +310,20 @@ const replaceDraftFile = asyncHandler(async (req, res) => {
     }
 });
 
+const editSigner = asyncHandler(async (req, res) => {
+    const { documentId, stepId } = req.params;
+    const { name, email } = req.body;
+    const initiatorId = req.user.userId;
+
+    if (!name || !email) {
+        throw new ValidationError('Name and email are required');
+    }
+
+    const updatedStep = await documentService.editSigner(documentId, stepId, initiatorId, name, email);
+    res.status(200).json({ message: 'Signer updated successfully', step: updatedStep });
+});
+
+
 module.exports = {
     listDocuments,
     listPendingApprovals,
@@ -330,5 +344,6 @@ module.exports = {
     completeSigning,
     declineSigning,
     resumeDocument,
-    reviseDocument
+    reviseDocument,
+    editSigner
 };

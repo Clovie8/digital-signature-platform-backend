@@ -180,7 +180,7 @@ class DocumentService {
     }
 
     // Get Single Document (detail view) — accessible to the initiator or any named signer
-        async getDocument(documentId, userId, userEmail, isAdmin = false) {
+    async getDocument(documentId, userId, userEmail, isAdmin = false) {
         const document = await Document.findByPk(documentId, {
             include: [{ model: WorkflowStep }]
         });
@@ -323,9 +323,15 @@ class DocumentService {
         const transaction = await sequelize.transaction();
 
         try {
-            const document = await Document.findByPk(documentId, { transaction });
+            const document = await Document.findByPk(documentId, { transaction,  lock: transaction.LOCK.UPDATE });
             if (!document) throw new Error('DOCUMENT_NOT_FOUND');
 
+            if (document.status !== 'draft') {
+                 await transaction.rollback();
+                 return { message: "Already dispatched" };
+            }
+            
+            await WorkflowStep.destroy({ where: { document_id: documentId }, transaction });
             await document.update({ status: 'pending', initiatorReceivesFinalCopy }, { transaction });
 
             let firstSignerToken = null;
@@ -816,6 +822,76 @@ class DocumentService {
 
         return { signerName: pendingStep.signerName };
     }
+
+
+    // Edit pending signer (allows initiator to update email and name)
+    async editSigner(documentId, stepId, initiatorId, newName, newEmail) {
+        // 1. Verify document ownership
+        const document = await Document.findByPk(documentId);
+        if (!document) {
+            throw new Error('DOCUMENT_NOT_FOUND');
+        }
+        if (document.initiator_id !== initiatorId) {
+            throw new Error('NOT_OWNER');
+        }
+
+        // 2. Find the step
+        const step = await WorkflowStep.findOne({
+            where: { id: stepId, document_id: documentId }
+        });
+
+        if (!step) {
+            throw new Error('INVALID_STATE');
+        }
+
+        // 3. Ensure the step is still pending
+        if (step.status !== 'pending') {
+            throw new Error('INVALID_STATE');
+        }
+
+        const oldEmail = step.signerEmail;
+        const emailChanged = oldEmail !== newEmail;
+
+        // 4. Update name and email
+        step.signerName = newName;
+        step.signerEmail = newEmail;
+
+        // 5. If email changed, we must revoke the old access by generating new tokens
+        if (emailChanged) {
+            step.accessToken = uuidv4();
+            step.otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+            step.otpExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); 
+        }
+
+        await step.save();
+
+        // 6. If the email changed AND it is currently their turn to sign, send them an invitation
+        if (emailChanged) {
+            const previousSteps = await WorkflowStep.findAll({
+                where: {
+                    document_id: documentId,
+                    stepOrder: {
+                        [Op.lt]: step.stepOrder
+                    }
+                }
+            });
+
+            const isCurrentlyActive = previousSteps.every(s => s.status === 'completed');
+
+            if (isCurrentlyActive) {
+                await sendSignatureEmail(
+                    newEmail,
+                    newName,
+                    step.accessToken,
+                    document.fileName,
+                    step.otpCode
+                );
+            }
+        }
+
+        return step;
+    }
+    
 
     // Get Download URL (initiator or any participant, any time)
     async getDownloadUrl(documentId, userId, userEmail) {
