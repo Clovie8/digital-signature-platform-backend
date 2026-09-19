@@ -7,6 +7,8 @@ const WorkflowStep = require('./WorkflowStep');
 const AuditLog = require('./AuditLog');
 const Signer = require('./Signer');
 const Signature = require('./Signature');
+const Template = require('./Template');
+const TemplateSigner = require('./TemplateSigner');
 
 // Define Relationships (Associations)
 
@@ -33,6 +35,21 @@ Signature.belongsTo(User, { foreignKey: 'user_id' });
 Signer.hasMany(Signature, { foreignKey: 'signer_id', as: 'signatures', onDelete: 'CASCADE' });
 Signature.belongsTo(Signer, { foreignKey: 'signer_id', as: 'signer' });
 
+// User <-> Template (creator)
+User.hasMany(Template, { foreignKey: 'created_by', onDelete: 'CASCADE' });
+Template.belongsTo(User, { foreignKey: 'created_by' });
+
+// Template <-> TemplateSigner <-> User (shared access)
+Template.hasMany(TemplateSigner, { foreignKey: 'template_id', onDelete: 'CASCADE' });
+TemplateSigner.belongsTo(Template, { foreignKey: 'template_id' });
+
+User.hasMany(TemplateSigner, { foreignKey: 'user_id', onDelete: 'CASCADE' });
+TemplateSigner.belongsTo(User, { foreignKey: 'user_id' });
+
+// Document <-> Template (which template a document was created from, if any)
+Template.hasMany(Document, { foreignKey: 'template_id' });
+Document.belongsTo(Template, { foreignKey: 'template_id' });
+
 // Export everything as a centralized module
 module.exports = {
     sequelize,
@@ -41,5 +58,7 @@ module.exports = {
     WorkflowStep,
     AuditLog, 
     Signature,
-    Signer
+    Signer,
+    Template,
+    TemplateSigner
 };
