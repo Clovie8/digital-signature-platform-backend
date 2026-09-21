@@ -13,7 +13,7 @@ const REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
 class DocumentService {
 
     // List Documents (unified inbox: sent by you, or pending on you as a signer)
-        async listDocuments(userId, userEmail, isAdmin = false) {
+        async listDocuments(userId, userEmail, isAdmin = false, folderId = undefined) {
         let documentIds;
 
         if (isAdmin) {
@@ -34,14 +34,17 @@ class DocumentService {
 
             documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
         }
-
+        
         if (documentIds.length === 0) return [];
 
-        // Step 2: fetch those documents with every step fully loaded (unfiltered),
-        // so totalSteps/signedSteps/pendingOn are computed from the whole picture,
-        // not just the rows that happened to match the membership query above.
+        const whereClause = { id: { [Op.in]: documentIds } };
+        if (folderId !== undefined) {
+            whereClause.folder_id = folderId === 'null' ? null : folderId;
+        }
+
+        // Step 2: fetch those documents
         const documents = await Document.findAll({
-            where: { id: { [Op.in]: documentIds } },
+            where: whereClause,
             include: [{ model: WorkflowStep }, { model: User }],
             order: [['updated_at', 'DESC']]
         });
@@ -59,6 +62,7 @@ class DocumentService {
 
             return {
                 id: document.id,
+                folder_id: document.folder_id,
                 fileName: document.fileName,
                 status: document.status,
                 version: document.version,
