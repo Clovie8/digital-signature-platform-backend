@@ -17,6 +17,7 @@ const authRoutes = require('./routes/authRoutes');
 const workflowRoutes = require('./routes/workflowRoutes');
 const signatureRoutes = require('./routes/signatureRoutes');
 const folderRoutes = require('./routes/folderRoutes');
+const templateRoutes = require('./routes/templateRoute');
 
 const app = express();
 
@@ -59,6 +60,7 @@ app.use('/api/workflows', workflowRoutes);
 app.use('/api/signatures', signatureRoutes);
 app.use('/api/folders', folderRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api', templateRoutes);
 
 // Mount the Global Error Handler 
 // This must be the very last app.use() so it can catch everything!

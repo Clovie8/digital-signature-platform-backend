@@ -43,6 +43,11 @@ const Document = sequelize.define('Document', {
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at'
+}, {
+  templateId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  }  
 });
 
 module.exports = Document;
