@@ -8,7 +8,8 @@ const listDocuments = asyncHandler(async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
     const isAdmin = req.user.role === 'admin';
-    const documents = await documentService.listDocuments(userId, userEmail, isAdmin);
+    const folderId = req.query.folderId;
+    const documents = await documentService.listDocuments(userId, userEmail, isAdmin, folderId);
     res.status(200).json({ documents });
 });
 

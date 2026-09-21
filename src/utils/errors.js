@@ -32,7 +32,14 @@ class ConflictError extends AppError {
   }
 }
 
+class ForbiddenError extends AppError {
+  constructor(message = 'Forbidden access') {
+    super(message, 403);
+  }
+}
+
 module.exports = {
+  ForbiddenError,
   AppError,
   NotFoundError,
   UnauthorizedError,
