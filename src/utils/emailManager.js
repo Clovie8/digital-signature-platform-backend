@@ -378,29 +378,37 @@ const sendAutoVoidEmail = async (initiatorEmail, documentName) => {
     }
 };
 
-const sendVoidNotificationEmail = async (signerEmail, signerName, documentName) => {
-    try {
-        const mailOptions = {
-            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
-            to: signerEmail,
-            subject: `Voided: ${documentName}`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #b91c1c;">Document Voided</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        Hello ${signerName}, the sender has voided <strong>${documentName}</strong>. No further action is needed from you, and any previous signing link for it is no longer valid.
-                    </p>
-                </div>
-            `
-        };
-        const info = await resend.emails.send(mailOptions);
-        console.log(`Void notification sent to ${signerEmail}: ${info.messageId}`);
-        return true;
-    } catch (error) {
-        console.error('Void Notification Email Error:', error);
-        return false;
-    }
+const sendVoidNotificationEmail = async (toEmail, signerName, documentName, reason) => {
+    const reasonHtml = reason 
+        ? `<p style="margin-top:20px; font-size:14px; color:#555;"><strong>Reason:</strong> ${reason}</p>`
+        : '';
+
+    const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Document Voided</h2>
+            <p>Hi ${signerName},</p>
+            <p>The document <strong>${documentName}</strong> has been voided by the initiator.</p>
+            <p>You no longer need to review or sign this document.</p>
+            ${reasonHtml}
+        </div>
+    `;
+    await resend.emails.send({ from: process.env.EMAIL_FROM || '"Digital Signature" <noreply@clovisdev.tech>', to: toEmail, subject: `Voided: ${documentName}`, html: html });
 };
+
+const sendResumeNoticeEmail = async (toEmail, signerName, documentName, resumedSignerName) => {
+    const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Signing Resumed</h2>
+            <p>Hi ${signerName},</p>
+            <p>We wanted to let you know that the document <strong>${documentName}</strong> has resumed its signing workflow.</p>
+            <p>The issue reported by <strong>${resumedSignerName}</strong> was resolved, and they have been notified to sign the document again.</p>
+            <p>Since you have already signed, no further action is required from you at this time.</p>
+        </div>
+    `;
+    await resend.emails.send({ from: process.env.EMAIL_FROM || '"Digital Signature" <noreply@clovisdev.tech>', to: toEmail, subject: `Resumed: ${documentName}`, html: html });
+};
+
+
 
 const sendReminderEmail = async (signerEmail, signerName, token, documentName, otp) => {
     try {
@@ -482,4 +490,4 @@ const sendPinResetEmail = async (toEmail, otp) => {
 };
 
 
-module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail, sendPinResetEmail, sendInvitationEmail, sendAccountDeactivatedEmail, sendAccountReactivatedEmail, };
+module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendResumeNoticeEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail, sendPinResetEmail, sendInvitationEmail, sendAccountDeactivatedEmail, sendAccountReactivatedEmail, };
