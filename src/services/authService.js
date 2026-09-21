@@ -118,6 +118,12 @@ class AuthService {
 
         if (!user) throw new Error('INVALID_TOKEN');
 
+        // Password validation: new with current password
+        const isSamePassword = await bcrypt.compare(newPassword, user.passwordHash);
+        if (isSamePassword) {
+            throw new Error('SAME_PASSWORD');
+        }
+
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(newPassword, salt);
 
