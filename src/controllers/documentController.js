@@ -71,11 +71,11 @@ const uploadDocument = asyncHandler(async (req, res) => {
 const dispatchDocument = asyncHandler(async (req, res) => {
     const { id } = req.params;
     
-    const { signers, fields, initiatorReceivesFinalCopy } = req.body; 
+    const { signers, fields, initiatorReceivesFinalCopy, dueDate } = req.body; 
     
     const initiatorEmail = req.user.email;
     const ipAddress = req.ip || req.connection.remoteAddress;
-    const result = await documentService.dispatch(id, signers, fields, initiatorEmail, ipAddress, initiatorReceivesFinalCopy);
+    const result = await documentService.dispatch(id, signers, fields, initiatorEmail, ipAddress, initiatorReceivesFinalCopy, dueDate);
     
     res.status(200).json({ message: 'Document dispatched.', ...result });
 });
