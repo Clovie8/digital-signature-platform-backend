@@ -5,6 +5,7 @@ const { Document, WorkflowStep, AuditLog, User, Signature, Signer, sequelize } =
 const { uploadToR2, getPresignedPdfUrl, getFileBufferFromR2, uploadBufferToR2, deleteFromR2 } = require('../utils/s3Manager');
 const { sendSignatureEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendReminderEmail, sendVoidNotificationEmail, sendReviewReadyEmail, sendResumeNoticeEmail } = require('../utils/emailManager');
 const { stampDocument, appendAuditTrail } = require('../utils/pdfManager');
+const templateService = require('./templateService');
 const bcrypt = require('bcryptjs');
 
 const MAX_RESUMES = 3;
@@ -1096,7 +1097,13 @@ class DocumentService {
                 resultingHash: masterHash
             });
 
-                        // Email distribution logic
+            try {
+            await templateService.grantAccessToCompletedSigners(documentId);
+            } catch (err) {
+            console.error('[Template] Failed to grant template access after completion:', err);
+            }
+
+            // Email distribution logic
             const steps = await WorkflowStep.findAll({ where: { document_id: documentId } });
             let allStepsToNotify = [...steps];
 

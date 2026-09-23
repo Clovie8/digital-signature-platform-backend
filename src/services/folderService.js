@@ -1,4 +1,4 @@
-const { Folder, FolderAccess, Document, User, sequelize } = require('../models');
+const { Folder, FolderAccess, Document, User, Template, TemplateSigner, sequelize } = require('../models');
 
 class FolderService {
     // 1. Get Effective Role using Recursive CTE
@@ -113,19 +113,23 @@ class FolderService {
             });
         }
         
+        const userObj = await sequelize.models.User.findByPk(userId);
+        const userEmail = userObj ? userObj.email : '';
+        
         let docWhere = {};
-        if (folderId) {
-            docWhere = { folder_id: folderId };
+        if (isAdmin) {
+            if (folderId) {
+                docWhere = { folder_id: folderId };
+            } else {
+                docWhere = { folder_id: null };
+            }
         } else {
-            const userObj = await sequelize.models.User.findByPk(userId);
-            const userEmail = userObj ? userObj.email : '';
-            
             const sentByYouIds = await Document.findAll({
-                  where: { initiator_id: userId, folder_id: null },
+                  where: { initiator_id: userId, folder_id: folderId || null },
                   attributes: ['id']
             });
             const pendingOnYouIds = await Document.findAll({
-                  where: { status: { [Op.ne]: 'draft' } },
+                  where: { folder_id: folderId || null, status: { [Op.ne]: 'draft' } },
                   attributes: ['id'],
                   include: [{ model: sequelize.models.WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
             });
@@ -142,8 +146,41 @@ class FolderService {
             order: [['updated_at', 'DESC']]
         });
 
-        const userObj = await sequelize.models.User.findByPk(userId);
-        const userEmail = userObj ? userObj.email : '';
+        let templateWhere = {};
+        if (folderId) {
+            templateWhere = { folder_id: folderId };
+        } else {
+            // Root level: templates created by user and not in a folder, PLUS templates shared with user
+            // Wait, templates are either created_by the user, or the user is in TemplateSigner.
+            // And folder_id must be null for root level.
+            // Wait, if a template is in a shared folder, we handle it in `folderId != null`.
+            // So for root level, we just get root templates.
+            const createdWhere = { created_by: userId, folder_id: null };
+            
+            // Also templates shared directly via TemplateSigner (if any) and in root?
+            // Actually let's fetch like listTemplates does, but only those in root.
+            const sharedTemplateIdsRes = await sequelize.models.TemplateSigner.findAll({
+                where: { user_id: userId },
+                attributes: ['template_id']
+            });
+            const sharedTemplateIds = sharedTemplateIdsRes.map(ts => ts.template_id);
+            
+            templateWhere = {
+                folder_id: null,
+                [Op.or]: [
+                    { created_by: userId },
+                    { id: { [Op.in]: sharedTemplateIds } }
+                ]
+            };
+        }
+
+        const templates = await Template.findAll({
+            where: templateWhere,
+            include: [{ model: sequelize.models.User }],
+            order: [['updated_at', 'DESC']]
+        });
+
+
 
         const documents = docs.map(document => {
             const steps = document.WorkflowSteps || [];
@@ -189,7 +226,18 @@ class FolderService {
             };
         });
 
-        return { folders: foldersWithRoles, documents, currentRole: role };
+        const formattedTemplates = templates.map(template => ({
+            id: template.id,
+            name: template.name,
+            fileName: template.fileName,
+            usageCount: template.usageCount,
+            createdAt: template.created_at,
+            updatedAt: template.updated_at,
+            created_by: template.created_by,
+            creatorName: template.User ? template.User.name : 'Unknown'
+        }));
+
+        return { folders: foldersWithRoles, documents, templates: formattedTemplates, currentRole: role };
     }
 
     // 4. Move Item (File or Folder)
@@ -257,6 +305,19 @@ class FolderService {
             document.folder_id = destinationFolderId || null;
             await document.save();
             return document;
+        } else if (itemType === 'template') {
+            const template = await Template.findByPk(itemId);
+            if (!template) throw new Error('TEMPLATE_NOT_FOUND');
+            if (template.folder_id) {
+                const sourceRole = await this.getEffectiveRole(template.folder_id, userId, isAdmin);
+                if (sourceRole !== 'manager' && sourceRole !== 'editor') throw new Error('NO_WRITE_ACCESS_SOURCE');
+            } else {
+                if (!isAdmin && template.created_by !== userId) throw new Error('NOT_OWNER');
+            }
+
+            template.folder_id = destinationFolderId || null;
+            await template.save();
+            return template;
         } else {
             throw new Error('INVALID_ITEM_TYPE');
         }
