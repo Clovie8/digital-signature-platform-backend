@@ -324,7 +324,7 @@ class DocumentService {
     }
 
     // Dispatch Document Workflow
-    async dispatch(documentId, signers, fields, initiatorEmail, ipAddress, initiatorReceivesFinalCopy) {
+    async dispatch(documentId, signers, fields, initiatorEmail, ipAddress, initiatorReceivesFinalCopy, dueDate) {
         // Use a Sequelize Transaction to ensure atomicity
         const transaction = await sequelize.transaction();
 
@@ -338,7 +338,7 @@ class DocumentService {
             }
             
             await WorkflowStep.destroy({ where: { document_id: documentId }, transaction });
-            await document.update({ status: 'pending', initiatorReceivesFinalCopy }, { transaction });
+            await document.update({ status: 'pending', initiatorReceivesFinalCopy, dueDate }, { transaction });
 
             let firstSignerToken = null;
             let firstSignerEmail = null;

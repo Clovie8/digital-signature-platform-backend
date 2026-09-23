@@ -410,17 +410,29 @@ const sendResumeNoticeEmail = async (toEmail, signerName, documentName, resumedS
 
 
 
-const sendReminderEmail = async (signerEmail, signerName, token, documentName, otp) => {
+const sendReminderEmail = async (signerEmail, signerName, token, documentName, otp, hoursLeft = null) => {
     try {
         const secureLink = `${process.env.FRONTEND_URL}/sign/${token}?otp=${otp}`;
+
+        const isUrgent = hoursLeft !== null && hoursLeft <= 24;
+        const subjectPrefix = isUrgent ? 'URGENT:' : 'Reminder:';
 
         const mailOptions = {
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: signerEmail,
-            subject: `Reminder: Action Required for ${documentName}`,
+            subject: `${subjectPrefix} Action Required for ${documentName}`,
             html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
                     <h2 style="color: #d97706;">Action Required: Signature Reminder</h2>
+                    
+                    ${hoursLeft !== null ? `
+                    <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; margin-bottom: 20px;">
+                        <p style="color: #b91c1c; font-size: 14px; margin: 0; font-weight: bold;">
+                            ${hoursLeft <= 24 ? 'URGENT: This document is due today!' : `This document is due in ${Math.ceil(hoursLeft / 24)} days.`}
+                        </p>
+                    </div>
+                    ` : ''}
+
                     <p style="color: #555; font-size: 16px;">
                         Hello ${signerName},
                     </p>
