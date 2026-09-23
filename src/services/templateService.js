@@ -19,6 +19,7 @@ class TemplateService {
         });
         const sharedTemplateIds = sharedSignerTemplates.map(t => t.template_id);
 
+        const { User } = require('../models');
         const templates = await Template.findAll({
             where: {
                 [Op.or]: [
@@ -27,19 +28,38 @@ class TemplateService {
                     { folder_id: { [Op.in]: folderIds } }
                 ]
             },
+            include: [{ model: User }],
             order: [['created_at', 'DESC']]
         });
 
-        return templates.map(t => ({
-            id: t.id,
-            name: t.name,
-            fileName: t.fileName,
-            folder_id: t.folder_id,
-            signerCount: (t.templateConfig?.signers || []).length,
-            usageCount: t.usageCount,
-            createdAt: t.created_at,
-            updatedAt: t.updated_at
-        }));
+        const folderRoleMap = {};
+        for (const f of accessibleFolders) {
+            folderRoleMap[f.id] = f.access_role || 'viewer';
+        }
+
+        return templates.map(t => {
+            let role = 'viewer';
+            if (t.created_by === userId) {
+                role = 'manager';
+            } else if (t.folder_id && folderRoleMap[t.folder_id]) {
+                role = folderRoleMap[t.folder_id];
+            } else if (sharedTemplateIds.includes(t.id)) {
+                role = 'viewer';
+            }
+            
+            return {
+                id: t.id,
+                name: t.name,
+                fileName: t.fileName,
+                folder_id: t.folder_id,
+                signerCount: (t.templateConfig?.signers || []).length,
+                usageCount: t.usageCount,
+                createdAt: t.created_at,
+                updatedAt: t.updated_at,
+                creatorName: t.User ? t.User.name : 'Unknown',
+                access_role: role
+            };
+        });
     }
 
     async getTemplate(templateId, userId) {
@@ -102,7 +122,15 @@ class TemplateService {
         });
         if (!template) throw new Error('TEMPLATE_NOT_FOUND');
 
-        const hasAccess = template.created_by === userId || template.TemplateSigners.length > 0;
+        let hasAccess = template.created_by === userId || template.TemplateSigners.length > 0;
+        if (!hasAccess) {
+            const folderService = require('./folderService');
+            const folders = await folderService.getAllFolders(userId);
+            const folderIds = folders.map(f => f.id);
+            if (template.folder_id && folderIds.includes(template.folder_id)) {
+                hasAccess = true;
+            }
+        }
         if (!hasAccess) throw new Error('FORBIDDEN');
 
         const fileBuffer = await getFileBufferFromR2(template.filePath);

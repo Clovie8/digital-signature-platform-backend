@@ -45,7 +45,7 @@ class FolderService {
     }
 
     // 2. Create Folder
-    async createFolder(name, parentId, userId) {
+    async createFolder(name, parentId, userId, type = 'document') {
         if (parentId) {
             const role = await this.getEffectiveRole(parentId, userId, false);
             if (role !== 'editor' && role !== 'manager') {
@@ -56,7 +56,8 @@ class FolderService {
         const folder = await Folder.create({
             name,
             owner_id: userId,
-            parent_folder_id: parentId || null
+            parent_folder_id: parentId || null,
+            type
         });
         return folder;
     }
@@ -234,7 +235,8 @@ class FolderService {
             createdAt: template.created_at,
             updatedAt: template.updated_at,
             created_by: template.created_by,
-            creatorName: template.User ? template.User.name : 'Unknown'
+            creatorName: template.User ? template.User.name : 'Unknown',
+            access_role: template.created_by === userId ? 'manager' : role
         }));
 
         return { folders: foldersWithRoles, documents, templates: formattedTemplates, currentRole: role };
@@ -269,6 +271,12 @@ class FolderService {
             const sourceRole = await this.getEffectiveRole(folder.id, userId, isAdmin);
             if (sourceRole !== 'manager' && sourceRole !== 'editor') throw new Error('NO_WRITE_ACCESS_SOURCE');
             
+            if (!isAdmin && folder.owner_id !== userId) {
+                if (!destinationFolderId) throw new Error('CANNOT_MOVE_TO_ROOT');
+                const destFolder = await Folder.findByPk(destinationFolderId);
+                if (!destFolder || destFolder.owner_id !== folder.owner_id) throw new Error('CANNOT_MOVE_OUT_OF_SHARED_SPACE');
+            }
+
             // Prevent circular dependency (destination cannot be a child of this folder)
             if (destinationFolderId) {
                 const circularQuery = `
@@ -302,6 +310,12 @@ class FolderService {
                 if (!isAdmin && document.initiator_id !== userId) throw new Error('NOT_OWNER');
             }
 
+            if (!isAdmin && document.initiator_id !== userId) {
+                if (!destinationFolderId) throw new Error('CANNOT_MOVE_TO_ROOT');
+                const destFolder = await Folder.findByPk(destinationFolderId);
+                if (!destFolder || destFolder.owner_id !== document.initiator_id) throw new Error('CANNOT_MOVE_OUT_OF_SHARED_SPACE');
+            }
+
             document.folder_id = destinationFolderId || null;
             await document.save();
             return document;
@@ -313,6 +327,12 @@ class FolderService {
                 if (sourceRole !== 'manager' && sourceRole !== 'editor') throw new Error('NO_WRITE_ACCESS_SOURCE');
             } else {
                 if (!isAdmin && template.created_by !== userId) throw new Error('NOT_OWNER');
+            }
+
+            if (!isAdmin && template.created_by !== userId) {
+                if (!destinationFolderId) throw new Error('CANNOT_MOVE_TO_ROOT');
+                const destFolder = await Folder.findByPk(destinationFolderId);
+                if (!destFolder || destFolder.owner_id !== template.created_by) throw new Error('CANNOT_MOVE_OUT_OF_SHARED_SPACE');
             }
 
             template.folder_id = destinationFolderId || null;
