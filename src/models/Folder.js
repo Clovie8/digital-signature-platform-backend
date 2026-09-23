@@ -13,6 +13,11 @@ const Folder = sequelize.define('Folder', {
     },
     owner_id: { type: DataTypes.UUID, allowNull: false },
     parent_folder_id: { type: DataTypes.UUID, allowNull: true },
+    type: { 
+        type: DataTypes.ENUM('document', 'template'), 
+        allowNull: false, 
+        defaultValue: 'document' 
+    },
     is_public: { type: DataTypes.BOOLEAN, defaultValue: false }
 }, {
     tableName: 'folders',

@@ -2,9 +2,9 @@ const folderService = require('../services/folderService');
 
 const createFolder = async (req, res) => {
     try {
-        const { name, parentId } = req.body;
+        const { name, parentId, type } = req.body;
         const userId = req.user.userId;
-        const folder = await folderService.createFolder(name, parentId, userId);
+        const folder = await folderService.createFolder(name, parentId, userId, type);
         res.status(201).json({ folder });
     } catch (error) {
         res.status(400).json({ error: error.message });
