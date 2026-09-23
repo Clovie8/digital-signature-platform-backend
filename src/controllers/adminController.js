@@ -88,4 +88,9 @@ const reactivateUser = asyncHandler(async (req, res) => {
     }
 });
 
-module.exports = { listUsers, listAuditLogs, inviteUser, inviteUsersCsv, updateUserRole, deactivateUser, reactivateUser, };
+const getTurnaroundAudit = asyncHandler(async (req, res) => {
+    const data = await adminService.getTurnaroundAudit();
+    res.status(200).json(data);
+});
+
+module.exports = { listUsers, listAuditLogs, inviteUser, inviteUsersCsv, updateUserRole, deactivateUser, reactivateUser, getTurnaroundAudit };

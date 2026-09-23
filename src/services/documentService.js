@@ -168,6 +168,19 @@ class DocumentService {
             status: d.status
         }));
 
+        // Fetch user turnaround stats
+        const adminService = require('./adminService');
+        const turnaroundAudit = await adminService.getTurnaroundAudit();
+        const userIndex = turnaroundAudit.signers.findIndex(s => s.email === userEmail);
+        let turnaroundStats = null;
+        if (userIndex !== -1) {
+            turnaroundStats = {
+                ...turnaroundAudit.signers[userIndex],
+                position: userIndex + 1,
+                totalSigners: turnaroundAudit.totalSigners
+            };
+        }
+
         return {
             userName: user ? user.name : '',
             stats: {
@@ -180,7 +193,8 @@ class DocumentService {
             completedPerWeek: weeks,
             needsAttention,
             recentActivity,
-            documentsInProgress
+            documentsInProgress,
+            turnaroundStats
         };
     }
 
