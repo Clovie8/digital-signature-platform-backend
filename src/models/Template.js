@@ -30,6 +30,15 @@ const Template = sequelize.define('Template', {
         type: DataTypes.INTEGER,
         defaultValue: 0,
     },
+    folder_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+            model: 'folders', // matching folder model table name
+            key: 'id'
+        },
+        onDelete: 'SET NULL'
+    },
 }, {
     tableName: 'templates',
     underscored: true,

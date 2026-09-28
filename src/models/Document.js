@@ -35,15 +35,19 @@ const Document = sequelize.define('Document', {
         defaultValue: true,
     },
     declineWarningSentAt: DataTypes.DATE,
+    folder_id: DataTypes.UUID,
     draftConfig: DataTypes.JSONB,
+    dueDate: {
+        type: DataTypes.DATE,
+        allowNull: true,
+    }
 }, {
     tableName: 'documents',
     underscored: true,
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at'
-},
-{
+}, {
   templateId: {
     type: DataTypes.UUID,
     allowNull: true,

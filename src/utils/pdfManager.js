@@ -53,19 +53,30 @@ const stampDocument = async (pdfBuffer, fields, completedValues) => {
                 });
             } else {
                 // It is typed text (either plain or prefixed with 'TYPED::')
-                const textToStamp = value.replace('TYPED::', '');
+                let textToStamp = value;
+                let customFontSize = null;
+                if (value.startsWith('TYPED::')) {
+                    const parts = value.split('::');
+                    if (parts.length >= 3 && !isNaN(parts[1])) {
+                        customFontSize = parseInt(parts[1]);
+                        textToStamp = parts.slice(2).join('::');
+                    } else {
+                        textToStamp = value.replace('TYPED::', '');
+                    }
+                }
+
                 const isSignature = field.type === 'Signature' || field.type === 'Initial';
 
                 // Dynamically scale font size if the box was resized vertically
                 const baseFontSize = isSignature ? 24 : 12;
-                const dynamicFontSize = pdfFieldHeight ? Math.max(12, Math.min(baseFontSize * 2, pdfFieldHeight * 0.6)) : baseFontSize;
+                const dynamicFontSize = customFontSize || (pdfFieldHeight ? Math.max(12, Math.min(baseFontSize * 2, pdfFieldHeight * 0.6)) : baseFontSize);
 
                 page.drawText(textToStamp, {
                     x: targetX,
                     y: targetY - (pdfFieldHeight ? pdfFieldHeight : 12), 
                     size: dynamicFontSize,
                     font: isSignature ? cursiveFont : font,
-                    color: rgb(0, 0.1, 0.4), 
+                    color: rgb(0, 0, 0), 
                 });
             }
         }

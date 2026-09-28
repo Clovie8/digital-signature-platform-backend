@@ -134,6 +134,95 @@ class AdminService {
             }
         };
     }
+
+    async getTurnaroundAudit() {
+        // Fetch all completed workflow steps with their document
+        const { WorkflowStep, Document } = require('../models');
+        const steps = await WorkflowStep.findAll({
+            where: { status: 'completed' },
+            include: [{
+                model: Document,
+                attributes: ['id', 'created_at']
+            }],
+            order: [['document_id', 'ASC'], ['stepOrder', 'ASC']]
+        });
+
+        // We need to calculate turnaround for each step.
+        // If stepOrder == 1, startedAt = Document.created_at
+        // If stepOrder > 1, startedAt = signedAt of the previous step in the same document
+        
+        // Let's build a map of document steps to easily find the previous step
+        const docSteps = {};
+        for (const step of steps) {
+            const docId = step.document_id;
+            if (!docSteps[docId]) docSteps[docId] = [];
+            docSteps[docId].push(step);
+        }
+
+        const signerStats = {}; // { [email]: { name, totalHours, count } }
+        let totalGlobalHours = 0;
+        let globalCount = 0;
+
+        for (const step of steps) {
+            if (!step.signedAt) continue; // safety check
+            
+            let startedAt = step.Document.created_at;
+            if (step.stepOrder > 1) {
+                // Find previous step
+                const previousStep = docSteps[step.document_id].find(s => s.stepOrder === step.stepOrder - 1);
+                if (previousStep && previousStep.signedAt) {
+                    startedAt = previousStep.signedAt;
+                }
+            }
+
+            const turnaroundMs = new Date(step.signedAt) - new Date(startedAt);
+            if (turnaroundMs < 0) continue; // anomalous data
+
+            const turnaroundHours = turnaroundMs / (1000 * 60 * 60);
+
+            const email = step.signerEmail;
+            if (!signerStats[email]) {
+                signerStats[email] = {
+                    name: step.signerName,
+                    email: email,
+                    totalHours: 0,
+                    count: 0
+                };
+            }
+
+            signerStats[email].totalHours += turnaroundHours;
+            signerStats[email].count += 1;
+
+            totalGlobalHours += turnaroundHours;
+            globalCount += 1;
+        }
+
+        const signers = Object.values(signerStats).map(s => {
+            const avgHours = s.totalHours / s.count;
+            let rating = 'Fast';
+            if (avgHours > 24) rating = 'Slow';
+            else if (avgHours > 12) rating = 'Average';
+
+            return {
+                name: s.name,
+                email: s.email,
+                documentsSigned: s.count,
+                avgTurnaroundHours: avgHours,
+                rating
+            };
+        });
+
+        // Sort fastest first
+        signers.sort((a, b) => a.avgTurnaroundHours - b.avgTurnaroundHours);
+
+        const globalAvgTurnaroundHours = globalCount > 0 ? totalGlobalHours / globalCount : 0;
+
+        return {
+            globalAvgTurnaroundHours,
+            totalSigners: signers.length,
+            signers
+        };
+    }
 }
 
 module.exports = new AdminService();

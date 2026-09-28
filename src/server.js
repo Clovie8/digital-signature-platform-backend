@@ -16,9 +16,12 @@ const documentRoutes = require('./routes/documentRoutes');
 const authRoutes = require('./routes/authRoutes');
 const workflowRoutes = require('./routes/workflowRoutes');
 const signatureRoutes = require('./routes/signatureRoutes');
+const folderRoutes = require('./routes/folderRoutes');
 const templateRoutes = require('./routes/templateRoute');
 
 const app = express();
+
+app.set('trust proxy', 1);
 
 app.use((req, res, next) => {
     console.log(`Incoming: ${req.method} ${req.url}`);
@@ -55,6 +58,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/signatures', signatureRoutes);
+app.use('/api/folders', folderRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', templateRoutes);
 

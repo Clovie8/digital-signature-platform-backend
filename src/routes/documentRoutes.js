@@ -22,7 +22,8 @@ const {
     completeSigning,
     declineSigning,
     resumeDocument,
-    reviseDocument
+    reviseDocument,
+    editSigner
 } = require('../controllers/documentController');
 
 const authenticateToken = require('../middleware/authMiddleware');
@@ -38,7 +39,7 @@ router.get('/:id/versions', authenticateToken, getVersionHistory);
 router.post('/upload', authenticateToken, upload.single('pdf_file'), uploadDocument);
 router.post('/:id/dispatch', authenticateToken, dispatchDocument);
 router.post('/:id/resume', authenticateToken, resumeDocument);
-router.post('/:id/revise', authenticateToken, upload.single('pdf_file'), reviseDocument);
+router.post('/:id/revise', authenticateToken, reviseDocument);
 router.post('/:id/void', authenticateToken, voidDocument);
 router.post('/:id/remind', authenticateToken, sendReminder);
 router.get('/:id/download', authenticateToken, downloadDocument);
@@ -47,6 +48,9 @@ router.post('/:id/approve', authenticateToken, approveDocument);
 router.get('/:id/file', authenticateToken, getDraftFile);
 router.patch('/:id/draft-config', authenticateToken, saveDraftConfig);
 router.post('/:id/file', authenticateToken, upload.single('pdf_file'), replaceDraftFile);
+
+// Edit Signer Route
+router.put('/:documentId/steps/:stepId', authenticateToken, editSigner);
 
 // Public Signer Routes (Auth handled via Tokenized Magic Links in URL)
 router.get('/sign/:token', getSigningView);

@@ -1,29 +1,118 @@
 const { Template, TemplateSigner, Document, WorkflowStep, Signer } = require('../models');
-const { uploadBufferToR2, getFileBufferFromR2, getPresignedPdfUrl } = require('../utils/s3Manager');
+const { uploadBufferToR2, getFileBufferFromR2, getPresignedPdfUrl, deleteFromR2 } = require('../utils/s3Manager');
 
 class TemplateService {
 
-    // List Templates (owned by the user, or shared via prior signing)
+    // List Templates (owned by the user, shared via prior signing, or in accessible folders)
     async listTemplates(userId) {
+        const { Op } = require('sequelize');
+        
+        // 1. Get all accessible folders
+        const folderService = require('./folderService');
+        const accessibleFolders = await folderService.getAllFolders(userId);
+        const folderIds = accessibleFolders.map(f => f.id);
+
+        // 2. Get templates shared via TemplateSigner
+        const sharedSignerTemplates = await TemplateSigner.findAll({
+            where: { user_id: userId },
+            attributes: ['template_id']
+        });
+        const sharedTemplateIds = sharedSignerTemplates.map(t => t.template_id);
+
+        const { User } = require('../models');
         const templates = await Template.findAll({
-            include: [{
-                model: TemplateSigner,
-                required: false,
-                where: { user_id: userId }
-            }],
+            where: {
+                [Op.or]: [
+                    { created_by: userId },
+                    { id: { [Op.in]: sharedTemplateIds } },
+                    { folder_id: { [Op.in]: folderIds } }
+                ]
+            },
+            include: [{ model: User }],
             order: [['created_at', 'DESC']]
         });
 
-        const visible = templates.filter(t =>
-            t.created_by === userId || t.TemplateSigners.length > 0
-        );
+        const folderRoleMap = {};
+        for (const f of accessibleFolders) {
+            folderRoleMap[f.id] = f.access_role || 'viewer';
+        }
 
-        return visible.map(t => ({
-            id: t.id,
-            name: t.name,
-            signerCount: (t.templateConfig?.signers || []).length,
-            usageCount: t.usageCount
-        }));
+        return templates.map(t => {
+            let role = 'viewer';
+            if (t.created_by === userId) {
+                role = 'manager';
+            } else if (t.folder_id && folderRoleMap[t.folder_id]) {
+                role = folderRoleMap[t.folder_id];
+            } else if (sharedTemplateIds.includes(t.id)) {
+                role = 'viewer';
+            }
+            
+            return {
+                id: t.id,
+                name: t.name,
+                fileName: t.fileName,
+                folder_id: t.folder_id,
+                signerCount: (t.templateConfig?.signers || []).length,
+                usageCount: t.usageCount,
+                createdAt: t.created_at,
+                updatedAt: t.updated_at,
+                creatorName: t.User ? t.User.name : 'Unknown',
+                access_role: role
+            };
+        });
+    }
+
+    async getTemplate(templateId, userId) {
+        const template = await Template.findByPk(templateId, {
+            include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
+        });
+        if (!template) throw new Error('TEMPLATE_NOT_FOUND');
+
+        // Note: access control logic should also check folder access in a full implementation.
+        // For now, we enforce owner or shared signers.
+        const hasAccess = template.created_by === userId || template.TemplateSigners.length > 0;
+        
+        if (!hasAccess) {
+            // Also check folder access
+            const folderService = require('./folderService');
+            const folders = await folderService.getAllFolders(userId);
+            const folderIds = folders.map(f => f.id);
+            if (!template.folder_id || !folderIds.includes(template.folder_id)) {
+                throw new Error('FORBIDDEN');
+            }
+        }
+        
+        return {
+            id: template.id,
+            name: template.name,
+            fileName: template.fileName,
+            folder_id: template.folder_id,
+            templateConfig: template.templateConfig,
+            usageCount: template.usageCount,
+            status: 'template', // pseudo status for frontend
+            createdAt: template.created_at,
+            updatedAt: template.updated_at
+        };
+    }
+
+    async getTemplateDownloadUrl(templateId, userId) {
+        const templateModel = await Template.findByPk(templateId, {
+            include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
+        });
+        if (!templateModel) throw new Error('TEMPLATE_NOT_FOUND');
+        
+        const hasAccess = templateModel.created_by === userId || templateModel.TemplateSigners.length > 0;
+        if (!hasAccess) {
+            const folderService = require('./folderService');
+            const folders = await folderService.getAllFolders(userId);
+            const folderIds = folders.map(f => f.id);
+            if (!templateModel.folder_id || !folderIds.includes(templateModel.folder_id)) {
+                throw new Error('FORBIDDEN');
+            }
+        }
+
+        const url = await getPresignedPdfUrl(templateModel.filePath);
+        return { url, fileName: templateModel.fileName };
     }
 
     // Use Template (clone its file + field layout into a new draft document)
@@ -33,7 +122,15 @@ class TemplateService {
         });
         if (!template) throw new Error('TEMPLATE_NOT_FOUND');
 
-        const hasAccess = template.created_by === userId || template.TemplateSigners.length > 0;
+        let hasAccess = template.created_by === userId || template.TemplateSigners.length > 0;
+        if (!hasAccess) {
+            const folderService = require('./folderService');
+            const folders = await folderService.getAllFolders(userId);
+            const folderIds = folders.map(f => f.id);
+            if (template.folder_id && folderIds.includes(template.folder_id)) {
+                hasAccess = true;
+            }
+        }
         if (!hasAccess) throw new Error('FORBIDDEN');
 
         const fileBuffer = await getFileBufferFromR2(template.filePath);
@@ -97,6 +194,44 @@ class TemplateService {
         });
 
         return template;
+    }
+
+    // Upload Template Directly (bypassing dispatch)
+    async uploadTemplateDirectly(userId, fileBuffer, originalName) {
+        const newFileKey = await uploadBufferToR2(fileBuffer, originalName);
+        
+        let templateName = originalName;
+        if (templateName.toLowerCase().endsWith('.pdf')) {
+            templateName = templateName.slice(0, -4);
+        }
+
+        const template = await Template.create({
+            name: templateName,
+            created_by: userId,
+            fileName: originalName,
+            filePath: newFileKey,
+            templateConfig: { signers: [], fields: [] }
+        });
+
+        return template;
+    }
+
+    // Delete Template
+    async deleteTemplate(templateId, userId) {
+        const template = await Template.findByPk(templateId);
+        if (!template) throw new Error('TEMPLATE_NOT_FOUND');
+        if (template.created_by !== userId) throw new Error('NOT_OWNER');
+
+        // Delete from R2 storage
+        try {
+            await deleteFromR2(template.filePath);
+        } catch (err) {
+            console.error('Failed to delete template file from R2:', err);
+        }
+
+        // Delete from database
+        await template.destroy();
+        return true;
     }
 
     // Grant Template Access (called after a document made from a template completes,

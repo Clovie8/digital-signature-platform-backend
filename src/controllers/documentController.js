@@ -8,7 +8,8 @@ const listDocuments = asyncHandler(async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
     const isAdmin = req.user.role === 'admin';
-    const documents = await documentService.listDocuments(userId, userEmail, isAdmin);
+    const folderId = req.query.folderId;
+    const documents = await documentService.listDocuments(userId, userEmail, isAdmin, folderId);
     res.status(200).json({ documents });
 });
 
@@ -70,11 +71,11 @@ const uploadDocument = asyncHandler(async (req, res) => {
 const dispatchDocument = asyncHandler(async (req, res) => {
     const { id } = req.params;
     
-    const { signers, fields, initiatorReceivesFinalCopy } = req.body; 
+    const { signers, fields, initiatorReceivesFinalCopy, dueDate } = req.body; 
     
     const initiatorEmail = req.user.email;
     const ipAddress = req.ip || req.connection.remoteAddress;
-    const result = await documentService.dispatch(id, signers, fields, initiatorEmail, ipAddress, initiatorReceivesFinalCopy);
+    const result = await documentService.dispatch(id, signers, fields, initiatorEmail, ipAddress, initiatorReceivesFinalCopy, dueDate);
     
     res.status(200).json({ message: 'Document dispatched.', ...result });
 });
@@ -159,41 +160,35 @@ const resumeDocument = asyncHandler(async (req, res) => {
 });
 
 const reviseDocument = asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const initiatorId = req.user.userId;
-    const initiatorEmail = req.user.email;
-    const ipAddress = req.ip || req.connection.remoteAddress;
-    const newFileBuffer = req.file ? req.file.buffer : null;
-    const newFileName = req.file ? req.file.originalname : null;
+    const documentId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const ipAddress = req.ip;
 
-    try {
-        const { document, isInitiatorFirst, redirectToken } = await documentService.reviseDocument(id, initiatorId, initiatorEmail, ipAddress, newFileBuffer, newFileName);
-        res.status(201).json({ message: 'Revised version created. All signers have been notified.', document, isInitiatorFirst, redirectToken });
-    } catch (error) {
-        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
-        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can revise this document.');
-        if (error.message === 'INVALID_STATE') throw new ValidationError('Document is not in a declined state.');
-        throw error;
-    }
+    const result = await documentService.reviseDocument(
+        documentId, userId, userEmail, ipAddress
+    );
+
+    res.status(200).json({ message: 'Revision draft created successfully.', documentId: result.documentId });
 });
 
 const voidDocument = asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const initiatorId = req.user.userId;
-    const initiatorEmail = req.user.email;
-    const ipAddress = req.ip || req.connection.remoteAddress;
+    const documentId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const ipAddress = req.ip;
+    const { reason } = req.body; // Capture the reason from the request body
 
-    try {
-        const { document, deleted } = await documentService.voidDocument(id, initiatorId, initiatorEmail, ipAddress);
-        res.status(200).json({ message: deleted ? 'Draft deleted successfully.' : 'Document voided successfully.', document });
-    } catch (error) {
-        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
-        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('Only the initiator can void this document.');
-        if (error.message === 'INVALID_STATE') throw new ValidationError('This document can no longer be voided.');
-        if (error.message === 'CONFLICT') throw new ConflictError('This document just changed state and can no longer be voided — refresh to see its current status.');
-        throw error;
+    const result = await documentService.voidDocument(documentId, userId, userEmail, ipAddress, reason);
+
+    if (result.deleted) {
+        res.status(200).json({ message: 'Draft deleted successfully.' });
+    } else {
+        res.status(200).json({ message: 'Document voided successfully.' });
     }
 });
+
+
 
 const sendReminder = asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -226,10 +221,10 @@ const downloadDocument = asyncHandler(async (req, res) => {
     } catch (error) {
         if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found.');
         if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have access to this document.');
-        if (error.message === 'INVALID_STATE') throw new ValidationError('This document has not been completed yet.');
         throw error;
     }
 });
+
 
 const getReviewFile = asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -310,6 +305,20 @@ const replaceDraftFile = asyncHandler(async (req, res) => {
     }
 });
 
+const editSigner = asyncHandler(async (req, res) => {
+    const { documentId, stepId } = req.params;
+    const { name, email } = req.body;
+    const initiatorId = req.user.userId;
+
+    if (!name || !email) {
+        throw new ValidationError('Name and email are required');
+    }
+
+    const updatedStep = await documentService.editSigner(documentId, stepId, initiatorId, name, email);
+    res.status(200).json({ message: 'Signer updated successfully', step: updatedStep });
+});
+
+
 module.exports = {
     listDocuments,
     listPendingApprovals,
@@ -330,5 +339,6 @@ module.exports = {
     completeSigning,
     declineSigning,
     resumeDocument,
-    reviseDocument
+    reviseDocument,
+    editSigner
 };

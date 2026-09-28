@@ -7,6 +7,8 @@ const WorkflowStep = require('./WorkflowStep');
 const AuditLog = require('./AuditLog');
 const Signer = require('./Signer');
 const Signature = require('./Signature');
+const Folder = require('./Folder');
+const FolderAccess = require('./FolderAccess');
 const Template = require('./Template');
 const TemplateSigner = require('./TemplateSigner');
 
@@ -32,8 +34,33 @@ AuditLog.belongsTo(Document, { foreignKey: 'document_id' });
 User.hasMany(Signature, { foreignKey: 'user_id' });
 Signature.belongsTo(User, { foreignKey: 'user_id' });
 
+
+// Folder <-> Folder (Self-referencing for hierarchy)
+Folder.belongsTo(Folder, { as: 'parentFolder', foreignKey: 'parent_folder_id' });
+Folder.hasMany(Folder, { as: 'subFolders', foreignKey: 'parent_folder_id', onDelete: 'CASCADE' });
+
+// User <-> Folder (Owner)
+User.hasMany(Folder, { foreignKey: 'owner_id', as: 'ownedFolders' });
+Folder.belongsTo(User, { foreignKey: 'owner_id', as: 'owner' });
+
+// Folder <-> Document
+Folder.hasMany(Document, { foreignKey: 'folder_id', as: 'documents', onDelete: 'CASCADE' });
+Document.belongsTo(Folder, { foreignKey: 'folder_id', as: 'folder' });
+
+// Folder <-> Template
+Folder.hasMany(Template, { foreignKey: 'folder_id', as: 'templates', onDelete: 'CASCADE' });
+Template.belongsTo(Folder, { foreignKey: 'folder_id', as: 'folder' });
+
+// ACL: Folder <-> FolderAccess <-> User
+Folder.hasMany(FolderAccess, { foreignKey: 'folder_id', as: 'accesses', onDelete: 'CASCADE' });
+FolderAccess.belongsTo(Folder, { foreignKey: 'folder_id' });
+
+User.hasMany(FolderAccess, { foreignKey: 'user_id', as: 'folderAccesses', onDelete: 'CASCADE' });
+FolderAccess.belongsTo(User, { foreignKey: 'user_id' });
+
 Signer.hasMany(Signature, { foreignKey: 'signer_id', as: 'signatures', onDelete: 'CASCADE' });
 Signature.belongsTo(Signer, { foreignKey: 'signer_id', as: 'signer' });
+
 
 // User <-> Template (creator)
 User.hasMany(Template, { foreignKey: 'created_by', onDelete: 'CASCADE' });
@@ -59,6 +86,8 @@ module.exports = {
     AuditLog, 
     Signature,
     Signer,
+    Folder,
+    FolderAccess,
     Template,
     TemplateSigner
 };

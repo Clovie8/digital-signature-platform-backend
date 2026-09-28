@@ -22,8 +22,8 @@ const loginUser = asyncHandler(async (req, res) => {
 
         res.cookie('token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
+            secure: true,
+            sameSite: 'none',
             maxAge: 24 * 60 * 60 * 1000
         });
 
@@ -52,6 +52,7 @@ const resetPassword = asyncHandler(async (req, res) => {
         res.status(200).json({ message: 'Password updated successfully' });
     } catch (error) {
         if (error.message === 'INVALID_TOKEN') throw new ValidationError('Invalid or expired reset token');
+        if (error.message === 'SAME_PASSWORD') throw new ValidationError('Your new password cannot be the same as your previous password.'); // Password validation: new with current password
         throw error;
     }
 });
@@ -88,8 +89,8 @@ const logoutUser = asyncHandler(async (req, res) => {
 
     res.clearCookie('token', {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict'
+        secure: true,
+        sameSite: 'none'
     });
     res.status(200).json({ message: 'Logged out successfully' });
 });
@@ -120,8 +121,8 @@ const completeInvite = asyncHandler(async (req, res) => {
 
         res.cookie('token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
+            secure: true,
+            sameSite: 'none',
             maxAge: 24 * 60 * 60 * 1000
         });
 
@@ -172,6 +173,9 @@ const updateProfile = asyncHandler(async (req, res) => {
 const changePassword = asyncHandler(async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) throw new ValidationError('Current and new password are required.');
+    
+    // Password validation: new with current password
+    if (currentPassword === newPassword) throw new ValidationError('Your new password must be different from your current password.');
 
     try {
         await authService.changePassword(req.user.userId, currentPassword, newPassword);

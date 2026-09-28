@@ -14,7 +14,7 @@ const authenticateToken = (req, res, next) => {
     // Verify the token is valid and hasn't been tampered with
     jwt.verify(token, process.env.JWT_SECRET, (err, decodedUser) => {
         if (err) {
-            return next(new ForbiddenError('Invalid or expired session token.'));
+            console.error('JWT VERIFY ERROR:', err); return next(new Error('Invalid or expired session token.'));
         }
 
         // Attach the decoded payload to the request object for the controllers to use
