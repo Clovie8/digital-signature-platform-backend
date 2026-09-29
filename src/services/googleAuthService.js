@@ -24,6 +24,28 @@ class GoogleAuthService {
         return `${AUTHORIZE_URL}?${params.toString()}`;
     }
 
+    getRedirectPage() {
+        const authUrl = this.getAuthorizationUrl();
+        return `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Redirecting to Google Sign-In — DSign</title>
+                <meta http-equiv="refresh" content="1;url=${authUrl}">
+            </head>
+            <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #FAFAFA;">
+                <div style="text-align: center;">
+                    <p style="color: #475569; font-size: 14px;">Redirecting you to sign in with Google…</p>
+                    <p style="margin-top: 12px;">
+                        <a href="${authUrl}" style="color: #0f172a; font-size: 13px;">Click here if you're not redirected automatically</a>
+                    </p>
+                </div>
+            </body>
+            </html>
+        `;
+    }
+
     async handleCallback(code, ipAddress) {
         // Exchange the authorization code for an access token
         const tokenRes = await axios.post(
@@ -55,24 +77,22 @@ class GoogleAuthService {
         let user = await User.findOne({ where: { googleId } });
 
         if (!user) {
-            user = await User.findOne({ where: { email } });
-
-            if (user) {
-                // Link the existing local/email account to this Google identity
-                await user.update({ googleId, authProvider: user.authProvider === 'local' ? 'local' : 'google' });
-            } else {
-                // Brand new user, created via Google sign-in
-                user = await User.create({
-                    name,
-                    email,
-                    googleId,
-                    authProvider: 'google',
-                    isVerified: true, // Google has already verified their identity
-                });
+            const existing = await User.findOne({ where: { email } });
+            if (existing) {
+                throw new Error('ACCOUNT_EXISTS_USE_ORIGINAL_LOGIN');
             }
+
+            // Brand new user, created via Google sign-in
+            user = await User.create({
+                name,
+                email,
+                googleId,
+                authProvider: 'google',
+                isVerified: true, 
+            });
         }
 
-        // Issue our own JWT, same shape as normal login
+        
         const token = jwt.sign(
             { userId: user.id, email: user.email, role: user.role },
             process.env.JWT_SECRET,
