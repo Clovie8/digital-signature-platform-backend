@@ -3,7 +3,8 @@ const asyncHandler = require('../utils/asyncHandler');
 require('dotenv').config();
 
 const microsoftLogin = (req, res) => {
-    res.send(microsoftAuthService.getRedirectPage());
+    const url = microsoftAuthService.getAuthorizationUrl();
+    res.redirect(url);
 };
 
 const microsoftCallback = asyncHandler(async (req, res) => {
@@ -20,7 +21,7 @@ const microsoftCallback = asyncHandler(async (req, res) => {
         res.cookie('token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
-            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+            sameSite: 'strict',
             maxAge: 24 * 60 * 60 * 1000
         });
 
@@ -28,11 +29,6 @@ const microsoftCallback = asyncHandler(async (req, res) => {
         res.redirect(`${process.env.FRONTEND_URL}${redirectPath}`);
     } catch (error) {
         console.error('Microsoft OAuth callback error:', error);
-
-        if (error.message === 'ACCOUNT_EXISTS_USE_ORIGINAL_LOGIN') {
-            return res.redirect(`${process.env.FRONTEND_URL}/login?error=account_exists_use_original_login`);
-        }
-
         res.redirect(`${process.env.FRONTEND_URL}/login?error=microsoft_auth_failed`);
     }
 });
