@@ -1,29 +1,93 @@
-const nodemailer = require('nodemailer');
-require('dotenv').config();
-
-// Create the transporter using environment variables
-// const transporter = nodemailer.createTransport({
-//     pool: true,
-//     maxConnections: 1,
-//     host: process.env.SMTP_HOST,
-//     port: process.env.SMTP_PORT,
-//     secure: true, // true for 465, false for other ports like 587
-//     auth: {
-//         user: process.env.SMTP_USER,
-//         pass: process.env.SMTP_PASS,
-//     },
-//     logger: true,
-//     debug: true
-// });
-
 const { Resend } = require('resend');
 require('dotenv').config();
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+const generateEmailHtml = ({ title, greeting, paragraphs = [], highlightBox = null, alertBox = null, bigCode = null, cta = null }) => {
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        @media only screen and (max-width: 600px) {
+            .email-container { padding: 16px !important; }
+            .content-wrapper { padding: 24px 16px !important; }
+            .header { padding: 20px 16px !important; }
+            .title { font-size: 20px !important; }
+            .btn { width: 100% !important; box-sizing: border-box; text-align: center; display: block !important; }
+            .doc-name { font-size: 16px !important; }
+        }
+    </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f9fafb;">
+    <div class="email-container" style="background-color: #f9fafb; padding: 32px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; line-height: 1.5; -webkit-font-smoothing: antialiased;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); border: 1px solid #f3f4f6;">
+            
+            <!-- Header -->
+            <div class="header" style="background-color: #0f172a; padding: 20px 24px; text-align: center;">
+                <span style="display: inline-block; vertical-align: middle; background-color: #ffffff; border-radius: 6px; padding: 6px; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-right: 10px;">
+                    <img src="https://img.icons8.com/ios-filled/50/0f172a/pen.png" width="16" height="16" alt="Pen" style="display: block; border: 0; margin: 0; padding: 0;" />
+                </span>
+                <h1 style="color: #ffffff; font-size: 18px; font-weight: 600; margin: 0; letter-spacing: 0.3px; display: inline-block; vertical-align: middle;">DSign Platform</h1>
+            </div>
 
-// Shared template for "you have a document to review and sign" emails.
-// sendSignatureEmail and sendRevisionEmail only differ in subject/intro copy.
+            <!-- Body -->
+            <div class="content-wrapper" style="padding: 32px 24px;">
+                <h2 class="title" style="font-size: 20px; font-weight: 700; color: #111827; margin-top: 0; margin-bottom: 20px;">${title}</h2>
+                
+                ${greeting ? `<p style="font-size: 14px; color: #4b5563; margin-top: 0; margin-bottom: 20px;">${greeting}</p>` : ''}
+                
+                ${paragraphs.map(p => `<p style="font-size: 14px; color: #4b5563; margin-top: 0; margin-bottom: 20px;">${p}</p>`).join('\n                ')}
+
+                ${highlightBox ? `
+                <div style="background-color: #f8fafc; border-left: 3px solid ${highlightBox.color || '#3b82f6'}; padding: 16px; border-radius: 4px; margin-bottom: 28px;">
+                    <p style="margin: 0 0 6px 0; font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">${highlightBox.label}</p>
+                    <p class="doc-name" style="margin: 0; font-size: 15px; font-weight: 600; color: #0f172a; word-break: break-word;">${highlightBox.value}</p>
+                </div>
+                ` : ''}
+
+                ${alertBox ? `
+                <div style="background-color: ${alertBox.type === 'danger' ? '#fef2f2' : (alertBox.type === 'success' ? '#f0fdf4' : '#fffbeb')}; border-radius: 6px; padding: 16px; margin-bottom: 28px;">
+                    <h4 style="margin: 0 0 4px 0; font-size: 13px; font-weight: 700; color: ${alertBox.type === 'danger' ? '#991b1b' : (alertBox.type === 'success' ? '#166534' : '#b45309')};">${alertBox.title}</h4>
+                    <p style="margin: 0; font-size: 13px; color: ${alertBox.type === 'danger' ? '#b91c1c' : (alertBox.type === 'success' ? '#15803d' : '#d97706')};">${alertBox.message}</p>
+                </div>
+                ` : ''}
+                
+                ${bigCode ? `
+                <div style="text-align: center; margin: 30px 0; background-color: #f8fafc; padding: 15px; border-radius: 6px; border: 1px dashed #cbd5e1;">
+                    <strong style="font-size: 28px; letter-spacing: 6px; color: #0f172a;">${bigCode}</strong>
+                </div>
+                ` : ''}
+
+                ${cta ? `
+                <div style="text-align: center; margin: 32px 0;">
+                    <a href="${cta.url}" class="btn" style="display: inline-block; background-color: ${cta.color || '#2563eb'}; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 6px; box-shadow: 0 2px 4px -1px rgba(37, 99, 235, 0.2);">
+                        ${cta.text}
+                    </a>
+                </div>
+                <p style="font-size: 12px; color: #64748b; margin-top: 28px; text-align: center; line-height: 1.6;">
+                    If the button above does not work, copy and paste the following link into your browser:<br>
+                    <a href="${cta.url}" style="color: #3b82f6; word-break: break-all; text-decoration: none; margin-top: 6px; display: inline-block;">${cta.url}</a>
+                </p>
+                ` : ''}
+            </div>
+
+            <!-- Footer -->
+            <div style="background-color: #f8fafc; padding: 20px 24px; border-top: 1px solid #f1f5f9; text-align: center;">
+                <p style="font-size: 12px; color: #94a3b8; margin: 0;">
+                    This is an automated message from the DSign Platform.<br>
+                    Please do not reply to this email.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+`;
+};
+
+// 1. sendSigningRequestEmail
 const sendSigningRequestEmail = async ({ signerEmail, signerName, token, documentName, otp, subject, introText, logLabel, errorLabel }) => {
     try {
         let secureLink = `${process.env.FRONTEND_URL}/sign/${token}`;
@@ -33,22 +97,22 @@ const sendSigningRequestEmail = async ({ signerEmail, signerName, token, documen
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: signerEmail,
             subject,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #333;">Hello ${signerName},</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        ${introText}
-                    </p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="${secureLink}" style="background-color: #0056b3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">
-                            Review and Sign Document
-                        </a>
-                    </div>
-                    <p style="color: #777; font-size: 14px;">
-                        This is a secure, one-time link. Please do not forward this email.
-                    </p>
-                </div>
-            `
+            html: generateEmailHtml({
+                title: "Signature Request",
+                greeting: `Hello <strong>${signerName}</strong>,`,
+                paragraphs: [
+                    introText,
+                    "This is a secure, one-time link. Please do not forward this email."
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                },
+                cta: {
+                    url: secureLink,
+                    text: "Review & Sign Document"
+                }
+            })
         };
 
         const info = await resend.emails.send(mailOptions);
@@ -56,41 +120,35 @@ const sendSigningRequestEmail = async ({ signerEmail, signerName, token, documen
         return true;
     } catch (error) {
         console.error(`${errorLabel}:`, error);
-        // We log the error but don't throw it, so a failed email doesn't crash the database transaction
         return false;
     }
 };
 
+// 2. sendSignatureEmail
 const sendSignatureEmail = (signerEmail, signerName, token, documentName, otp = null) =>
     sendSigningRequestEmail({
         signerEmail, signerName, token, documentName, otp,
         subject: `Action Required: Please sign ${documentName}`,
-        introText: `You have been requested to review and digitally sign <strong>${documentName}</strong>.`,
+        introText: "You have been requested to review and digitally sign the following document.",
         logLabel: 'Email',
         errorLabel: 'Email Dispatch Error'
     });
 
-
+// 3. sendPasswordResetEmail
 const sendPasswordResetEmail = async (userEmail, token) => {
     try {
         const mailOptions = {
             from: `"DSign Security" <notifications@clovisdev.tech>`,
             to: userEmail,
             subject: `DSign - Secure Password Reset Code`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #333;">Password Reset Request</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        We received a request to reset your DSign password. Please use the secure code below in your application:
-                    </p>
-                    <div style="text-align: center; margin: 30px 0; background-color: #f8fafc; padding: 15px; border-radius: 6px;">
-                        <strong style="font-size: 28px; letter-spacing: 6px; color: #0f172a;">${token.substring(0, 6).toUpperCase()}</strong>
-                    </div>
-                    <p style="color: #777; font-size: 14px;">
-                        This code is valid for 1 hour. If you did not request this, please safely ignore this email.
-                    </p>
-                </div>
-            `
+            html: generateEmailHtml({
+                title: "Password Reset Request",
+                paragraphs: [
+                    "We received a request to reset your DSign password. Please use the secure code below in your application:",
+                    "This code is valid for 1 hour. If you did not request this, please safely ignore this email."
+                ],
+                bigCode: token.substring(0, 6).toUpperCase()
+            })
         };
 
         const info = await resend.emails.send(mailOptions);
@@ -102,30 +160,28 @@ const sendPasswordResetEmail = async (userEmail, token) => {
     }
 };
 
-
+// 4. sendVerificationEmail
 const sendVerificationEmail = async (userEmail, token) => {
     try {
         const mailOptions = {
             from: `"DSign Security" <notifications@clovisdev.tech>`,
             to: userEmail,
             subject: `DSign - Verify Your Account`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #333;">Welcome to DSign!</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        To activate your account, please enter the 6-digit verification code below:
-                    </p>
-                    <div style="text-align: center; margin: 30px 0; background-color: #f8fafc; padding: 15px; border-radius: 6px;">
-                        <strong style="font-size: 28px; letter-spacing: 6px; color: #0f172a;">${token}</strong>
-                    </div>
-                </div>
-            `
+            html: generateEmailHtml({
+                title: "Welcome to DSign!",
+                paragraphs: [
+                    "To activate your account, please enter the 6-digit verification code below:"
+                ],
+                bigCode: token
+            })
         };
         await resend.emails.send(mailOptions);
     } catch (error) {
         console.error('Verification Email Error:', error);
     }
 };
+
+// 5. sendInvitationEmail
 const sendInvitationEmail = async (toEmail, inviterName) => {
     try {
         const registerLink = `${process.env.FRONTEND_URL}/login?register=true&email=${encodeURIComponent(toEmail)}`;
@@ -134,104 +190,105 @@ const sendInvitationEmail = async (toEmail, inviterName) => {
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: toEmail,
             subject: `${inviterName} invited you to DSign`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #333;">You've been invited to DSign</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        <strong>${inviterName}</strong> has invited you to join their organization on DSign, a secure digital signature platform.
-                    </p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="${registerLink}" style="background-color: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">
-                            Accept Invitation
-                        </a>
-                    </div>
-                    <p style="color: #777; font-size: 14px;">
-                        If you weren't expecting this invitation, you can safely ignore this email.
-                    </p>
-                </div>
-            `
+            html: generateEmailHtml({
+                title: "You've been invited to DSign",
+                paragraphs: [
+                    `<strong>${inviterName}</strong> has invited you to join their organization on DSign, a secure digital signature platform.`,
+                    "If you weren't expecting this invitation, you can safely ignore this email."
+                ],
+                cta: {
+                    url: registerLink,
+                    text: "Accept Invitation"
+                }
+            })
         };
-
-        const info = await resend.emails.send(mailOptions);
-        console.log(`Invitation email sent to ${toEmail}: ${info.messageId}`);
-        return true;
+        await resend.emails.send(mailOptions);
     } catch (error) {
         console.error('Invitation Email Error:', error);
-        return false;
     }
 };
+
+// 6. sendAccountDeactivatedEmail
 const sendAccountDeactivatedEmail = async (toEmail, name, reason) => {
     try {
         const mailOptions = {
             from: `"DSign Security" <notifications@clovisdev.tech>`,
             to: toEmail,
-            subject: `Your DSign account has been deactivated`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #b91c1c;">Account Deactivated</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        Hello ${name}, your DSign account has been deactivated by an administrator.
-                    </p>
-                    ${reason ? `
-                    <div style="background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 12px 16px; margin: 20px 0;">
-                        <p style="color: #7f1d1d; font-size: 14px; margin: 0;"><strong>Reason:</strong> ${reason}</p>
-                    </div>
-                    ` : ''}
-                    <p style="color: #777; font-size: 14px;">
-                        If you believe this is a mistake, please contact your administrator.
-                    </p>
-                </div>
-            `
+            subject: `Important: Your DSign Account has been deactivated`,
+            html: generateEmailHtml({
+                title: "Account Deactivated",
+                greeting: `Hello <strong>${name}</strong>,`,
+                paragraphs: [
+                    "Your DSign account has been deactivated by an administrator.",
+                    "You will no longer be able to log in or access your documents.",
+                    "If you believe this was a mistake, please contact your organization's administrator."
+                ],
+                alertBox: reason ? {
+                    type: 'danger',
+                    title: 'Reason for Deactivation',
+                    message: reason
+                } : null
+            })
         };
-        const info = await resend.emails.send(mailOptions);
-        console.log(`Deactivation email sent to ${toEmail}: ${info.messageId}`);
-        return true;
+        await resend.emails.send(mailOptions);
     } catch (error) {
         console.error('Deactivation Email Error:', error);
-        return false;
-    }
-};
-const sendAccountReactivatedEmail = async (toEmail, name) => {
-    try {
-        const mailOptions = {
-            from: `"DSign Security" <notifications@clovisdev.tech>`,
-            to: toEmail,
-            subject: `Your DSign account has been reactivated`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #059669;">Account Reactivated</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        Hello ${name}, good news — your DSign account has been reactivated. You can sign in again as normal.
-                    </p>
-                </div>
-            `
-        };
-        const info = await resend.emails.send(mailOptions);
-        console.log(`Reactivation email sent to ${toEmail}: ${info.messageId}`);
-        return true;
-    } catch (error) {
-        console.error('Reactivation Email Error:', error);
-        return false;
     }
 };
 
+// 7. sendAccountReactivatedEmail
+const sendAccountReactivatedEmail = async (toEmail, name) => {
+    try {
+        const loginLink = `${process.env.FRONTEND_URL}/login`;
+        const mailOptions = {
+            from: `"DSign Security" <notifications@clovisdev.tech>`,
+            to: toEmail,
+            subject: `Your DSign Account has been reactivated`,
+            html: generateEmailHtml({
+                title: "Account Reactivated",
+                greeting: `Hello <strong>${name}</strong>,`,
+                paragraphs: [
+                    "Good news! Your DSign account has been reactivated by an administrator.",
+                    "You can now log in and access your documents as usual."
+                ],
+                cta: {
+                    url: loginLink,
+                    text: "Log In to DSign",
+                    color: "#16a34a"
+                }
+            })
+        };
+        await resend.emails.send(mailOptions);
+    } catch (error) {
+        console.error('Reactivation Email Error:', error);
+    }
+};
+
+// 8. sendReviewReadyEmail
 const sendReviewReadyEmail = async (initiatorEmail, documentName) => {
     try {
         const mailOptions = {
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: initiatorEmail,
-            subject: `Ready for your review: ${documentName}`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #333;">All Signatures Collected</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        Every signer has completed <strong>${documentName}</strong>. It hasn't been sealed yet — review it and approve to finalize and notify everyone.
-                    </p>
-                </div>
-            `
+            subject: `Signatures Completed: ${documentName}`,
+            html: generateEmailHtml({
+                title: "Signatures Completed",
+                paragraphs: [
+                    "All requested signers have successfully completed their signatures.",
+                    "The document is now awaiting your final review and signature (if applicable)."
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                },
+                alertBox: {
+                    type: 'success',
+                    title: 'Ready for Review',
+                    message: 'Log in to your dashboard to review and finalize the document.'
+                }
+            })
         };
-        const info = await resend.emails.send(mailOptions);
-        console.log(`Review-ready email sent to ${initiatorEmail}: ${info.messageId}`);
+        await resend.emails.send(mailOptions);
         return true;
     } catch (error) {
         console.error('Review Ready Email Error:', error);
@@ -239,30 +296,32 @@ const sendReviewReadyEmail = async (initiatorEmail, documentName) => {
     }
 };
 
+// 9. sendCompletionEmail
 const sendCompletionEmail = async (signerEmail, documentName, secureLink) => {
     try {
         const mailOptions = {
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: signerEmail,
             subject: `Completed: ${documentName}`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #333;">Document Completed</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        The document <strong>${documentName}</strong> has been signed by all parties and successfully cryptographically sealed.
-                    </p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="${secureLink}" style="background-color: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">
-                            Download Sealed PDF
-                        </a>
-                    </div>
-                    <p style="color: #777; font-size: 14px;">
-                        This download link is valid for 7 days. An audit trail has been appended to the final page.
-                    </p>
-                </div>
-            `
+            html: generateEmailHtml({
+                title: "Document Completed",
+                paragraphs: [
+                    "All parties have successfully signed the document.",
+                    "You can view and download the fully executed final copy using the secure link below."
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                },
+                cta: {
+                    url: secureLink,
+                    text: "View Completed Document",
+                    color: "#16a34a"
+                }
+            })
         };
-        await resend.emails.send(mailOptions);
+        const info = await resend.emails.send(mailOptions);
+        console.log(`Completion email sent to ${signerEmail}: ${info.messageId}`);
         return true;
     } catch (error) {
         console.error('Completion Email Error:', error);
@@ -270,26 +329,31 @@ const sendCompletionEmail = async (signerEmail, documentName, secureLink) => {
     }
 };
 
+// 10. sendDeclineEmail
 const sendDeclineEmail = async (initiatorEmail, documentName, declinerName, reason) => {
     try {
         const mailOptions = {
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: initiatorEmail,
             subject: `Declined: ${documentName}`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #b91c1c;">Signature Declined</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        <strong>${declinerName}</strong> has declined to sign <strong>${documentName}</strong>. The signing workflow has been halted and no further signers will be notified.
-                    </p>
-                    <div style="background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 12px 16px; margin: 20px 0;">
-                        <p style="color: #7f1d1d; font-size: 14px; margin: 0;"><strong>Reason given:</strong> ${reason}</p>
-                    </div>
-                </div>
-            `
+            html: generateEmailHtml({
+                title: "Signature Declined",
+                paragraphs: [
+                    `<strong>${declinerName}</strong> has declined to sign the document.`,
+                    "The workflow has been halted. You can choose to Revise or Resume the document from your dashboard."
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                },
+                alertBox: {
+                    type: 'danger',
+                    title: 'Reason for Declining',
+                    message: reason || 'No reason provided.'
+                }
+            })
         };
-        const info = await resend.emails.send(mailOptions);
-        console.log(`Decline email sent to ${initiatorEmail}: ${info.messageId}`);
+        await resend.emails.send(mailOptions);
         return true;
     } catch (error) {
         console.error('Decline Email Error:', error);
@@ -297,32 +361,37 @@ const sendDeclineEmail = async (initiatorEmail, documentName, declinerName, reas
     }
 };
 
+// 11. sendRevisionEmail
 const sendRevisionEmail = (signerEmail, signerName, token, documentName, otp = null) =>
     sendSigningRequestEmail({
         signerEmail, signerName, token, documentName, otp,
-        subject: `Action Required: Corrected version of ${documentName}`,
-        introText: `A corrected version of <strong>${documentName}</strong> needs your signature. Any previous signature on this document has been reset and must be provided again.`,
-        logLabel: 'Revision email',
+        subject: `Action Required: Revised Document - ${documentName}`,
+        introText: "The document you previously reviewed has been revised. Please review and digitally sign the updated version.",
+        logLabel: 'Revision Email',
         errorLabel: 'Revision Email Error'
     });
 
+// 12. sendRevisionNoticeEmail
 const sendRevisionNoticeEmail = async (signerEmail, signerName, documentName) => {
     try {
         const mailOptions = {
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: signerEmail,
-            subject: `Heads up: ${documentName} was corrected`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #333;">Hello ${signerName},</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        A corrected version of <strong>${documentName}</strong> has been created. Any previous signature has been reset. You'll receive your signing link once it's your turn in the signing order.
-                    </p>
-                </div>
-            `
+            subject: `Notice: ${documentName} is being revised`,
+            html: generateEmailHtml({
+                title: "Document Revision Notice",
+                greeting: `Hello <strong>${signerName}</strong>,`,
+                paragraphs: [
+                    "A document you were a part of is currently being revised by the initiator.",
+                    "Once the revisions are complete, you will receive a new email with instructions to sign the updated document."
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                }
+            })
         };
-        const info = await resend.emails.send(mailOptions);
-        console.log(`Revision notice email sent to ${signerEmail}: ${info.messageId}`);
+        await resend.emails.send(mailOptions);
         return true;
     } catch (error) {
         console.error('Revision Notice Email Error:', error);
@@ -330,23 +399,31 @@ const sendRevisionNoticeEmail = async (signerEmail, signerName, documentName) =>
     }
 };
 
+// 13. sendDeclineWarningEmail
 const sendDeclineWarningEmail = async (initiatorEmail, documentName, daysLeft) => {
     try {
         const mailOptions = {
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: initiatorEmail,
-            subject: `Action needed soon: ${documentName} will auto-void in ${daysLeft} days`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #b45309;">Unresolved Decline</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        <strong>${documentName}</strong> was declined and has not been resumed or revised. It will automatically be voided in <strong>${daysLeft} days</strong> if no action is taken.
-                    </p>
-                </div>
-            `
+            subject: `Warning: ${documentName} pending void`,
+            html: generateEmailHtml({
+                title: "Action Required: Pending Void",
+                paragraphs: [
+                    "A document in your dashboard has been in the 'declined' state for an extended period.",
+                    `If no action is taken within the next <strong>${daysLeft} days</strong>, the system will automatically void the workflow permanently.`
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                },
+                alertBox: {
+                    type: 'danger',
+                    title: 'System Auto-Void Warning',
+                    message: `Please Revise or Resume the document within ${daysLeft} days to prevent automatic cancellation.`
+                }
+            })
         };
-        const info = await resend.emails.send(mailOptions);
-        console.log(`Decline warning email sent to ${initiatorEmail}: ${info.messageId}`);
+        await resend.emails.send(mailOptions);
         return true;
     } catch (error) {
         console.error('Decline Warning Email Error:', error);
@@ -354,65 +431,103 @@ const sendDeclineWarningEmail = async (initiatorEmail, documentName, daysLeft) =
     }
 };
 
+// 14. sendAutoVoidEmail
 const sendAutoVoidEmail = async (initiatorEmail, documentName) => {
     try {
         const mailOptions = {
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: initiatorEmail,
             subject: `Voided: ${documentName}`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #b91c1c;">Document Auto-Voided</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        <strong>${documentName}</strong> was declined and remained unresolved for 30 days, so it has been automatically voided.
-                    </p>
-                </div>
-            `
+            html: generateEmailHtml({
+                title: "Document Auto-Voided",
+                paragraphs: [
+                    "A document in your dashboard has been automatically voided by the system because it remained in the 'declined' state for more than 7 days.",
+                    "No further action can be taken on this workflow. If you still need this agreement signed, you will need to start a new document."
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                },
+                alertBox: {
+                    type: 'danger',
+                    title: 'Workflow Cancelled',
+                    message: 'This document is permanently voided.'
+                }
+            })
         };
-        const info = await resend.emails.send(mailOptions);
-        console.log(`Auto-void email sent to ${initiatorEmail}: ${info.messageId}`);
+        await resend.emails.send(mailOptions);
         return true;
     } catch (error) {
-        console.error('Auto-Void Email Error:', error);
+        console.error('Auto Void Email Error:', error);
         return false;
     }
 };
 
+// 15. sendVoidNotificationEmail
 const sendVoidNotificationEmail = async (toEmail, signerName, documentName, reason) => {
-    const reasonHtml = reason 
-        ? `<p style="margin-top:20px; font-size:14px; color:#555;"><strong>Reason:</strong> ${reason}</p>`
-        : '';
-
-    const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Document Voided</h2>
-            <p>Hi ${signerName},</p>
-            <p>The document <strong>${documentName}</strong> has been voided by the initiator.</p>
-            <p>You no longer need to review or sign this document.</p>
-            ${reasonHtml}
-        </div>
-    `;
-    await resend.emails.send({ from: process.env.EMAIL_FROM || '"Digital Signature" <noreply@clovisdev.tech>', to: toEmail, subject: `Voided: ${documentName}`, html: html });
+    try {
+        const mailOptions = {
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
+            to: toEmail,
+            subject: `Voided: ${documentName}`,
+            html: generateEmailHtml({
+                title: "Document Voided",
+                greeting: `Hello <strong>${signerName}</strong>,`,
+                paragraphs: [
+                    "The initiator has voided the signature workflow for this document.",
+                    "You do not need to take any further action."
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                },
+                alertBox: reason ? {
+                    type: 'danger',
+                    title: 'Reason for Voiding',
+                    message: reason
+                } : null
+            })
+        };
+        await resend.emails.send(mailOptions);
+        return true;
+    } catch (error) {
+        console.error('Void Notification Email Error:', error);
+        return false;
+    }
 };
 
+// 16. sendResumeNoticeEmail
 const sendResumeNoticeEmail = async (toEmail, signerName, documentName, resumedSignerName) => {
-    const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Signing Resumed</h2>
-            <p>Hi ${signerName},</p>
-            <p>We wanted to let you know that the document <strong>${documentName}</strong> has resumed its signing workflow.</p>
-            <p>The issue reported by <strong>${resumedSignerName}</strong> was resolved, and they have been notified to sign the document again.</p>
-            <p>Since you have already signed, no further action is required from you at this time.</p>
-        </div>
-    `;
-    await resend.emails.send({ from: process.env.EMAIL_FROM || '"Digital Signature" <noreply@clovisdev.tech>', to: toEmail, subject: `Resumed: ${documentName}`, html: html });
+    try {
+        const mailOptions = {
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
+            to: toEmail,
+            subject: `Resumed: ${documentName}`,
+            html: generateEmailHtml({
+                title: "Signing Resumed",
+                greeting: `Hi <strong>${signerName}</strong>,`,
+                paragraphs: [
+                    "We wanted to let you know that this document has resumed its signing workflow.",
+                    `The issue reported by <strong>${resumedSignerName}</strong> was resolved, and they have been notified to sign the document again.`,
+                    "Since you have already signed, no further action is required from you at this time."
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                }
+            })
+        };
+        await resend.emails.send(mailOptions);
+    } catch (error) {
+        console.error('Resume Notice Email Error:', error);
+    }
 };
 
-
-
+// 17. sendReminderEmail
 const sendReminderEmail = async (signerEmail, signerName, token, documentName, otp, hoursLeft = null) => {
     try {
-        const secureLink = `${process.env.FRONTEND_URL}/sign/${token}?otp=${otp}`;
+        let secureLink = `${process.env.FRONTEND_URL}/sign/${token}`;
+        if (otp) secureLink += `?otp=${otp}`;
 
         const isUrgent = hoursLeft !== null && hoursLeft <= 24;
         const subjectPrefix = isUrgent ? 'URGENT:' : 'Reminder:';
@@ -421,58 +536,61 @@ const sendReminderEmail = async (signerEmail, signerName, token, documentName, o
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: signerEmail,
             subject: `${subjectPrefix} Action Required for ${documentName}`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #d97706;">Action Required: Signature Reminder</h2>
-                    
-                    ${hoursLeft !== null ? `
-                    <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; margin-bottom: 20px;">
-                        <p style="color: #b91c1c; font-size: 14px; margin: 0; font-weight: bold;">
-                            ${hoursLeft <= 24 ? 'URGENT: This document is due today!' : `This document is due in ${Math.ceil(hoursLeft / 24)} days.`}
-                        </p>
-                    </div>
-                    ` : ''}
-
-                    <p style="color: #555; font-size: 16px;">
-                        Hello ${signerName},
-                    </p>
-                    <p style="color: #555; font-size: 16px;">
-                        This is an automated reminder that you have a pending request to review and digitally sign <strong>${documentName}</strong>. 
-                        Please complete this at your earliest convenience to avoid workflow expiration.
-                    </p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="${secureLink}" style="background-color: #d97706; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">
-                            Review and Sign Document
-                        </a>
-                    </div>
-                </div>
-            `
+            html: generateEmailHtml({
+                title: "Signature Reminder",
+                greeting: `Hello <strong>${signerName}</strong>,`,
+                paragraphs: [
+                    "This is a friendly reminder that you have a pending request to review and digitally sign the document below."
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                },
+                alertBox: hoursLeft !== null ? {
+                    type: isUrgent ? 'danger' : 'warning',
+                    title: isUrgent ? '🚨 Urgent: Expiring Soon' : '⏱️ Action Required Soon',
+                    message: isUrgent ? `This document will expire in less than ${hoursLeft} hours. Please complete the signing process to avoid workflow cancellation.` : `This document will expire in ${Math.ceil(hoursLeft / 24)} days. Please complete the signing process to avoid workflow cancellation.`
+                } : null,
+                cta: {
+                    url: secureLink,
+                    text: "Review & Sign Document"
+                }
+            })
         };
 
-        await resend.emails.send(mailOptions);
-        console.log(`[Cron] Reminder emailed to ${signerEmail}`);
+        const info = await resend.emails.send(mailOptions);
+        console.log(`Reminder sent to ${signerEmail}: ${info.messageId}`);
+        return true;
     } catch (error) {
-        console.error('Reminder Email Dispatch Error:', error);
+        console.error('Reminder Email Error:', error);
+        return false;
     }
 };
 
+// 18. sendExpirationEmail
 const sendExpirationEmail = async (userEmail, documentName) => {
     try {
         const mailOptions = {
             from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
             to: userEmail,
-            subject: `Document Expired: ${documentName}`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 8px;">
-                    <h2 style="color: #ef4444;">Document Expired</h2>
-                    <p style="color: #555; font-size: 16px;">
-                        The document <strong>${documentName}</strong> has exceeded the time limit for signatures.
-                    </p>
-                    <p style="color: #555; font-size: 16px;">
-                        As a result, this workflow has been automatically voided by the system and the document is no longer accessible. If you still need to complete this agreement, the initiator must dispatch a new document.
-                    </p>
-                </div>
-            `
+            subject: `Expired: ${documentName}`,
+            html: generateEmailHtml({
+                title: "Document Expired",
+                paragraphs: [
+                    "The time limit to complete the signatures for this document has passed.",
+                    "As a result, this workflow has been automatically voided by the system and the document is no longer accessible.",
+                    "If you still need to complete this agreement, the initiator must dispatch a new document."
+                ],
+                highlightBox: {
+                    label: "Document Name",
+                    value: documentName
+                },
+                alertBox: {
+                    type: 'danger',
+                    title: 'Workflow Expired',
+                    message: 'This document is permanently voided.'
+                }
+            })
         };
         await resend.emails.send(mailOptions);
         return true;
@@ -482,24 +600,48 @@ const sendExpirationEmail = async (userEmail, documentName) => {
     }
 };
 
-
+// 19. sendPinResetEmail
 const sendPinResetEmail = async (toEmail, otp) => {
-    const mailOptions = {
-        from: `"DSign Security" <notifications@clovisdev.tech>`,
-        to: toEmail,
-        subject: 'Signature PIN Reset Code',
-        html: `
-            <div style="font-family: Arial, sans-serif; max-w: 600px; margin: 0 auto;">
-                <h2>Reset Your Signature PIN</h2>
-                <p>You requested to reset the PIN for one of your saved signatures.</p>
-                <p>Your 6-digit reset code is:</p>
-                <h1 style="background: #f1f5f9; padding: 15px; text-align: center; letter-spacing: 5px; color: #0f172a;">${otp}</h1>
-                <p style="color: #64748b; font-size: 12px;">This code will expire in 15 minutes. If you did not request this reset, you can safely ignore this email.</p>
-            </div>
-        `
-    };
-    await resend.emails.send(mailOptions);
+    try {
+        const mailOptions = {
+            from: `"DSign Security" <notifications@clovisdev.tech>`,
+            to: toEmail,
+            subject: 'Signature PIN Reset Code',
+            html: generateEmailHtml({
+                title: "Reset Your Signature PIN",
+                paragraphs: [
+                    "You requested to reset the PIN for one of your saved signatures.",
+                    "Your 6-digit reset code is:",
+                    "This code will expire in 15 minutes. If you did not request this reset, you can safely ignore this email."
+                ],
+                bigCode: otp
+            })
+        };
+        await resend.emails.send(mailOptions);
+        return true;
+    } catch (error) {
+        console.error('Pin Reset Email Error:', error);
+        return false;
+    }
 };
 
-
-module.exports = { sendSignatureEmail, sendPasswordResetEmail, sendVerificationEmail, sendCompletionEmail, sendDeclineEmail, sendRevisionEmail, sendRevisionNoticeEmail, sendDeclineWarningEmail, sendAutoVoidEmail, sendVoidNotificationEmail, sendResumeNoticeEmail, sendReminderEmail, sendExpirationEmail, sendReviewReadyEmail, sendPinResetEmail, sendInvitationEmail, sendAccountDeactivatedEmail, sendAccountReactivatedEmail, };
+module.exports = {
+    sendSignatureEmail,
+    sendPasswordResetEmail,
+    sendVerificationEmail,
+    sendCompletionEmail,
+    sendDeclineEmail,
+    sendRevisionEmail,
+    sendRevisionNoticeEmail,
+    sendDeclineWarningEmail,
+    sendAutoVoidEmail,
+    sendVoidNotificationEmail,
+    sendResumeNoticeEmail,
+    sendReminderEmail,
+    sendExpirationEmail,
+    sendReviewReadyEmail,
+    sendPinResetEmail,
+    sendInvitationEmail,
+    sendAccountDeactivatedEmail,
+    sendAccountReactivatedEmail,
+};
