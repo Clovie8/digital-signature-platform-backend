@@ -716,7 +716,7 @@ class DocumentService {
             });
 
             const draftConfig = {
-                currentStep: 3, // Jump directly to Tag Document
+                currentStep: 2, // Jump directly to Tag Document
                 isInitiatorFirst: false,
                 initiatorReceivesFinalCopy: true,
                 signers: signers,
