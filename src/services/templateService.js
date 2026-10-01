@@ -116,7 +116,7 @@ class TemplateService {
     }
 
     // Use Template (clone its file + field layout into a new draft document)
-    async useTemplate(templateId, userId) {
+    async useTemplate(templateId, userId, folder_id = null) {
         const template = await Template.findByPk(templateId, {
             include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
         });
@@ -145,6 +145,7 @@ class TemplateService {
             fileName: template.fileName,
             originalFilePath: newFileKey,
             status: 'draft',
+            folder_id: folder_id || null,
             draftConfig: { signers, fields, currentStep: 2 }
         });
 
@@ -258,6 +259,21 @@ class TemplateService {
                     })
                 )
         );
+    }
+    async renameTemplate(userId, templateId, newName) {
+        const template = await Template.findByPk(templateId);
+        if (!template) throw new Error('TEMPLATE_NOT_FOUND');
+        if (template.created_by !== userId) throw new Error('FORBIDDEN');
+        
+        let sanitizedName = newName.trim();
+        if (!sanitizedName.toLowerCase().endsWith('.pdf')) {
+            sanitizedName += '.pdf';
+        }
+        
+        template.fileName = sanitizedName;
+        template.name = sanitizedName;
+        await template.save();
+        return template;
     }
 }
 

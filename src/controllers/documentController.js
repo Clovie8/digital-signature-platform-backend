@@ -60,7 +60,8 @@ const getVersionHistory = asyncHandler(async (req, res) => {
 const uploadDocument = asyncHandler(async (req, res) => {
     try {
         const initiatorId = req.user.userId;
-        const document = await documentService.upload(req.file.buffer, req.file.originalname, initiatorId);
+        const { folder_id } = req.body;
+        const document = await documentService.upload(req.file.buffer, req.file.originalname, initiatorId, folder_id);
         res.status(201).json({ message: 'Document uploaded securely to Cloud', document });
     } catch (error) {
         if (error.message === 'NO_FILE') throw new ValidationError('No PDF file uploaded.');
@@ -318,6 +319,24 @@ const editSigner = asyncHandler(async (req, res) => {
     res.status(200).json({ message: 'Signer updated successfully', step: updatedStep });
 });
 
+const renameDocument = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { name } = req.body;
+    
+    if (!name) {
+        throw new ValidationError('New document name is required');
+    }
+
+    try {
+        const document = await documentService.renameDocument(req.user.userId, id, name);
+        res.json({ message: 'Document renamed successfully', document });
+    } catch (error) {
+        if (error.message === 'DOCUMENT_NOT_FOUND') throw new NotFoundError('Document not found');
+        if (error.message === 'NOT_OWNER') throw new UnauthorizedError('You do not have permission to rename this document');
+        throw error;
+    }
+});
+
 
 module.exports = {
     listDocuments,
@@ -340,5 +359,6 @@ module.exports = {
     declineSigning,
     resumeDocument,
     reviseDocument,
-    editSigner
+    editSigner,
+    renameDocument
 };

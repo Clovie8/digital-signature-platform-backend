@@ -320,7 +320,7 @@ class DocumentService {
     }
 
     // Upload Document
-    async upload(fileBuffer, originalName, initiatorId) {
+    async upload(fileBuffer, originalName, initiatorId, folder_id = null) {
         if (!fileBuffer) throw new Error('NO_FILE');
         
         // Upload to Cloudflare R2
@@ -331,7 +331,8 @@ class DocumentService {
             initiator_id: initiatorId, 
             fileName: originalName,
             originalFilePath: r2FileKey,
-            status: 'draft'
+            status: 'draft',
+            folder_id: folder_id || null
         });
 
         return document;
@@ -1155,6 +1156,20 @@ class DocumentService {
             console.error('[Workflow] Finalization Error:', error);
             throw error;
         }
+    }
+    async renameDocument(userId, documentId, newName) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== userId) throw new Error('NOT_OWNER');
+        
+        let sanitizedName = newName.trim();
+        if (!sanitizedName.toLowerCase().endsWith('.pdf')) {
+            sanitizedName += '.pdf';
+        }
+        
+        document.fileName = sanitizedName;
+        await document.save();
+        return document;
     }
 }
 
