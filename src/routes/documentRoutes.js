@@ -23,7 +23,8 @@ const {
     declineSigning,
     resumeDocument,
     reviseDocument,
-    editSigner
+    editSigner,
+    renameDocument
 } = require('../controllers/documentController');
 
 const authenticateToken = require('../middleware/authMiddleware');
@@ -51,6 +52,9 @@ router.post('/:id/file', authenticateToken, upload.single('pdf_file'), replaceDr
 
 // Edit Signer Route
 router.put('/:documentId/steps/:stepId', authenticateToken, editSigner);
+
+// Rename Document Route
+router.put('/:id/rename', authenticateToken, renameDocument);
 
 // Public Signer Routes (Auth handled via Tokenized Magic Links in URL)
 router.get('/sign/:token', getSigningView);

@@ -11,9 +11,10 @@ const listTemplates = asyncHandler(async (req, res) => {
 const useTemplate = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user.userId;
+    const { folder_id } = req.body || {};
 
     try {
-        const result = await templateService.useTemplate(id, userId);
+        const result = await templateService.useTemplate(id, userId, folder_id);
         res.status(201).json(result);
     } catch (error) {
         if (error.message === 'TEMPLATE_NOT_FOUND') throw new NotFoundError('Template not found.');
@@ -90,6 +91,23 @@ const downloadTemplate = asyncHandler(async (req, res) => {
         throw error;
     }
 });
+const renameTemplate = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { name } = req.body;
+    
+    if (!name) {
+        throw new ValidationError('New template name is required');
+    }
+
+    try {
+        const template = await templateService.renameTemplate(req.user.userId, id, name);
+        res.json({ message: 'Template renamed successfully', template });
+    } catch (error) {
+        if (error.message === 'TEMPLATE_NOT_FOUND') throw new NotFoundError('Template not found');
+        if (error.message === 'FORBIDDEN') throw new UnauthorizedError('You do not have permission to rename this template');
+        throw error;
+    }
+});
 
 module.exports = {
     listTemplates,
@@ -98,5 +116,6 @@ module.exports = {
     uploadTemplate,
     deleteTemplate,
     getTemplate,
-    downloadTemplate
+    downloadTemplate,
+    renameTemplate
 };
