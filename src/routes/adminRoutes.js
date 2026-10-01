@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 
-const { listUsers, listAuditLogs, inviteUser, inviteUsersCsv, updateUserRole, deactivateUser, reactivateUser, getTurnaroundAudit } = require('../controllers/adminController');
+const { listUsers, listAuditLogs, inviteUser, inviteUsersCsv, updateUserRole, deactivateUser, reactivateUser, getTurnaroundAudit, getAllFiles } = require('../controllers/adminController');
 const authenticateToken = require('../middleware/authMiddleware');
 const requireAdmin = require('../middleware/requireAdmin');
 
@@ -16,5 +16,6 @@ router.patch('/users/:id/deactivate', authenticateToken, requireAdmin, deactivat
 router.patch('/users/:id/reactivate', authenticateToken, requireAdmin, reactivateUser);
 router.get('/audit-logs', authenticateToken, requireAdmin, listAuditLogs);
 router.get('/audit/turnaround', authenticateToken, requireAdmin, getTurnaroundAudit);
+router.get('/all-files', authenticateToken, requireAdmin, getAllFiles);
 
 module.exports = router;

@@ -16,8 +16,7 @@ const deleteFolder = async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
-        await folderService.deleteFolder(id, userId, isAdmin);
+        await folderService.deleteFolder(id, userId);
         res.status(200).json({ success: true });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -28,9 +27,8 @@ const getDirectory = async (req, res) => {
     try {
         const { folderId } = req.query;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
         
-        const contents = await folderService.getDirectoryContents(folderId || null, userId, isAdmin);
+        const contents = await folderService.getDirectoryContents(folderId || null, userId);
         res.status(200).json(contents);
     } catch (error) {
         res.status(403).json({ error: error.message });
@@ -42,9 +40,8 @@ const moveBulkItems = async (req, res) => {
     try {
         const { items, destinationFolderId } = req.body;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
         
-        const results = await folderService.moveBulkItems(items, destinationFolderId, userId, isAdmin);
+        const results = await folderService.moveBulkItems(items, destinationFolderId, userId);
         res.status(200).json({ success: true, results });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -55,9 +52,8 @@ const moveItem = async (req, res) => {
     try {
         const { itemId, itemType, destinationFolderId } = req.body;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
         
-        const result = await folderService.moveItem(itemId, itemType, destinationFolderId, userId, isAdmin);
+        const result = await folderService.moveItem(itemId, itemType, destinationFolderId, userId);
         res.status(200).json({ success: true, item: result });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -68,9 +64,8 @@ const moveItem = async (req, res) => {
 const getAllFolders = async (req, res) => {
     try {
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
         const parentId = req.query.parentId;
-        const folders = await folderService.getAllFolders(userId, isAdmin, parentId);
+        const folders = await folderService.getAllFolders(userId, parentId);
         res.status(200).json({ folders });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -82,8 +77,7 @@ const getFolderAccess = async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
-        const data = await folderService.getFolderAccess(id, userId, isAdmin);
+        const data = await folderService.getFolderAccess(id, userId);
         res.status(200).json(data);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -95,8 +89,7 @@ const updateFolderAccess = async (req, res) => {
         const { id } = req.params;
         const { targetUserId, role } = req.body;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
-        const data = await folderService.updateFolderAccess(id, targetUserId, role, userId, isAdmin);
+        const data = await folderService.updateFolderAccess(id, targetUserId, role, userId);
         res.status(200).json(data);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -126,8 +119,7 @@ const updateFolderPublicStatus = async (req, res) => {
         const { id } = req.params;
         const { isPublic } = req.body;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
-        const data = await folderService.updatePublicStatus(id, isPublic, userId, isAdmin);
+        const data = await folderService.updatePublicStatus(id, isPublic, userId);
         res.status(200).json(data);
     } catch (error) {
         res.status(400).json({ error: error.message });

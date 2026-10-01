@@ -62,7 +62,7 @@ class TemplateService {
         });
     }
 
-    async getTemplate(templateId, userId) {
+    async getTemplate(templateId, userId, isAdmin = false) {
         const template = await Template.findByPk(templateId, {
             include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
         });
@@ -70,7 +70,7 @@ class TemplateService {
 
         // Note: access control logic should also check folder access in a full implementation.
         // For now, we enforce owner or shared signers.
-        const hasAccess = template.created_by === userId || template.TemplateSigners.length > 0;
+        const hasAccess = isAdmin || template.created_by === userId || template.TemplateSigners.length > 0;
         
         if (!hasAccess) {
             // Also check folder access
@@ -95,13 +95,13 @@ class TemplateService {
         };
     }
 
-    async getTemplateDownloadUrl(templateId, userId) {
+    async getTemplateDownloadUrl(templateId, userId, isAdmin = false) {
         const templateModel = await Template.findByPk(templateId, {
             include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
         });
         if (!templateModel) throw new Error('TEMPLATE_NOT_FOUND');
         
-        const hasAccess = templateModel.created_by === userId || templateModel.TemplateSigners.length > 0;
+        const hasAccess = isAdmin || templateModel.created_by === userId || templateModel.TemplateSigners.length > 0;
         if (!hasAccess) {
             const folderService = require('./folderService');
             const folders = await folderService.getAllFolders(userId);
