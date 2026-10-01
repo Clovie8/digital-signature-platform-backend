@@ -66,9 +66,10 @@ const deleteTemplate = asyncHandler(async (req, res) => {
 const getTemplate = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user.userId;
+    const isAdmin = req.user.role === 'admin';
 
     try {
-        const template = await templateService.getTemplate(id, userId);
+        const template = await templateService.getTemplate(id, userId, isAdmin);
         // Map to standard response format used by documents
         res.status(200).json({ document: template });
     } catch (error) {
@@ -81,9 +82,10 @@ const getTemplate = asyncHandler(async (req, res) => {
 const downloadTemplate = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user.userId;
+    const isAdmin = req.user.role === 'admin';
 
     try {
-        const { url, fileName } = await templateService.getTemplateDownloadUrl(id, userId);
+        const { url, fileName } = await templateService.getTemplateDownloadUrl(id, userId, isAdmin);
         res.status(200).json({ url, fileName });
     } catch (error) {
         if (error.message === 'TEMPLATE_NOT_FOUND') throw new NotFoundError('Template not found.');

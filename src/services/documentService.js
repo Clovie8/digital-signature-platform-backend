@@ -14,27 +14,20 @@ const REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
 class DocumentService {
 
     // List Documents (unified inbox: sent by you, or pending on you as a signer)
-        async listDocuments(userId, userEmail, isAdmin = false, folderId = undefined) {
-        let documentIds;
+    async listDocuments(userId, userEmail, folderId = undefined) {
+        // Step 1: figure out which document ids the user should see at all.
+        const sentByYouIds = await Document.findAll({
+            where: { initiator_id: userId },
+            attributes: ['id']
+        });
 
-        if (isAdmin) {
-            const allDocs = await Document.findAll({ attributes: ['id'] });
-            documentIds = allDocs.map(d => d.id);
-        } else {
-            // Step 1: figure out which document ids the user should see at all.
-            const sentByYouIds = await Document.findAll({
-                where: { initiator_id: userId },
-                attributes: ['id']
-            });
+        const pendingOnYouIds = await Document.findAll({
+            where: { status: { [Op.ne]: 'draft' } },
+            attributes: ['id'],
+            include: [{ model: WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
+        });
 
-            const pendingOnYouIds = await Document.findAll({
-                where: { status: { [Op.ne]: 'draft' } },
-                attributes: ['id'],
-                include: [{ model: WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
-            });
-
-            documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
-        }
+        const documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
         
         if (documentIds.length === 0) return [];
 
@@ -943,15 +936,17 @@ class DocumentService {
     
 
     // Get Download URL (initiator or any participant, any time)
-    async getDownloadUrl(documentId, userId, userEmail) {
+    async getDownloadUrl(documentId, userId, userEmail, isAdmin = false) {
         const document = await Document.findByPk(documentId, {
             include: [{ model: WorkflowStep }]
         });
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
 
-        const isInitiator = document.initiator_id === userId;
-        const isParticipant = (document.WorkflowSteps || []).some(s => s.signerEmail === userEmail);
-        if (!isInitiator && !isParticipant) throw new Error('NOT_OWNER');
+        if (!isAdmin) {
+            const isInitiator = document.initiator_id === userId;
+            const isParticipant = (document.WorkflowSteps || []).some(s => s.signerEmail === userEmail);
+            if (!isInitiator && !isParticipant) throw new Error('NOT_OWNER');
+        }
 
         // We fetch the signed file if it exists, otherwise the original draft file
         const targetFileKey = document.signedFilePath || document.originalFilePath;
