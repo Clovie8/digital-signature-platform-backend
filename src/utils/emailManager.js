@@ -1,7 +1,6 @@
-const { Resend } = require('resend');
 require('dotenv').config();
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = require('./graphMailer');
 
 const generateEmailHtml = ({ title, greeting, paragraphs = [], highlightBox = null, alertBox = null, bigCode = null, cta = null }) => {
     return `
