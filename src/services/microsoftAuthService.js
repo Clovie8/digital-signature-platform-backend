@@ -47,17 +47,23 @@ class MicrosoftAuthService {
     }
 
     async handleCallback(code, ipAddress) {
-        const tokenRes = await axios.post(
-            TOKEN_URL,
-            new URLSearchParams({
-                client_id: CLIENT_ID,
-                client_secret: CLIENT_SECRET,
-                code,
-                redirect_uri: REDIRECT_URI,
-                grant_type: 'authorization_code',
-            }),
-            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-        );
+        let tokenRes;
+        try {
+            tokenRes = await axios.post(
+                TOKEN_URL,
+                new URLSearchParams({
+                    client_id: CLIENT_ID,
+                    client_secret: CLIENT_SECRET,
+                    code,
+                    redirect_uri: REDIRECT_URI,
+                    grant_type: 'authorization_code',
+                }),
+                { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+            );
+        } catch (err) {
+            console.error('Microsoft token exchange failed:', err.response?.data);
+            throw err;
+        }
 
         const accessToken = tokenRes.data.access_token;
 
@@ -74,18 +80,23 @@ class MicrosoftAuthService {
         let user = await User.findOne({ where: { microsoftId } });
 
         if (!user) {
-            const existing = await User.findOne({ where: { email } });
-            if (existing) {
-                throw new Error('ACCOUNT_EXISTS_USE_ORIGINAL_LOGIN');
-            }
+            user = await User.findOne({ where: { email } });
 
-            user = await User.create({
-                name,
-                email,
-                microsoftId,
-                authProvider: 'microsoft',
-                isVerified: true,
-            });
+            if (user) {
+               
+                await user.update({
+                    microsoftId,
+                    authProvider: user.authProvider === 'local' ? 'local' : 'microsoft',
+                });
+            } else {
+                user = await User.create({
+                    name,
+                    email,
+                    microsoftId,
+                    authProvider: 'microsoft',
+                    isVerified: true,
+                });
+            }
         }
 
         const token = jwt.sign(
@@ -97,7 +108,7 @@ class MicrosoftAuthService {
         AuditLog.create({
             action: 'USER_LOGIN_MICROSOFT',
             actorEmail: user.email,
-            ipAddress
+            ipAddress,
         }).catch(err => console.error('Failed to write Microsoft login audit log:', err));
 
         return { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
