@@ -383,37 +383,45 @@ class DocumentService {
                 ipAddress: ipAddress
             }, { transaction });
 
-            await transaction.commit();
-
-            // Conditional Branching (Outside transaction as email sending is an external side-effect)
             let isInitiatorFirst = false;
+            let otp = null;
 
             if (firstSignerEmail === initiatorEmail) {
                 isInitiatorFirst = true;
                 console.log(`Initiator is Level 1. Skipping email. Token: ${firstSignerToken}`);
             } else if (firstSignerEmail) {
-                const otp = Math.floor(100000 + Math.random() * 900000).toString();
+                otp = Math.floor(100000 + Math.random() * 900000).toString();
+                // Include this update IN the transaction to prevent outer-scope crashes
                 await WorkflowStep.update(
-                    { otpCode: otp, otpExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }, // 7 days
-                    { where: { accessToken: firstSignerToken } }
+                    { otpCode: otp, otpExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+                    { where: { accessToken: firstSignerToken }, transaction } 
                 );
-                
-                // Check if this is a Revision Dispatch
-                if (document.parent_document_id) {
-                    await sendRevisionEmail(firstSignerEmail, firstSignerName, firstSignerToken, document.fileName, otp);
-                    
-                    // Find all signers who COMPLETED the old document and send them a notice
-                    const oldCompletedSteps = await WorkflowStep.findAll({
-                        where: { document_id: document.parent_document_id, status: 'completed' }
-                    });
-                    
-                    for (const old of oldCompletedSteps) {
-                        await sendRevisionNoticeEmail(old.signerEmail, old.signerName, document.fileName);
+            }
+
+            // COMMIT (after all database updates are finalized)
+            await transaction.commit();
+
+            // External side-effect (Email Sending) wrapped safely so it doesn't trigger rollback
+            try {
+                if (!isInitiatorFirst && firstSignerEmail) {
+                    if (document.parent_document_id) {
+                        await sendRevisionEmail(firstSignerEmail, firstSignerName, firstSignerToken, document.fileName, otp);
+                        
+                        // Find all signers who COMPLETED the old document and send them a notice
+                        const oldCompletedSteps = await WorkflowStep.findAll({
+                            where: { document_id: document.parent_document_id, status: 'completed' }
+                        });
+                        
+                        for (const old of oldCompletedSteps) {
+                            await sendRevisionNoticeEmail(old.signerEmail, old.signerName, document.fileName);
+                        }
+                    } else {
+                        // Standard new document dispatch
+                        await sendSignatureEmail(firstSignerEmail, firstSignerName, firstSignerToken, document.fileName, otp);
                     }
-                } else {
-                    // Standard new document dispatch
-                    await sendSignatureEmail(firstSignerEmail, firstSignerName, firstSignerToken, document.fileName, otp);
                 }
+            } catch (emailErr) {
+                console.error("Failed to send dispatch emails, but document was dispatched:", emailErr);
             }
 
             return { isInitiatorFirst, redirectToken: isInitiatorFirst ? firstSignerToken : null };
