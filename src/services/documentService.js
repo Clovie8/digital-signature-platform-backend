@@ -63,6 +63,7 @@ class DocumentService {
                 resumeCount: document.resumeCount,
                 createdAt: document.created_at,
                 updatedAt: document.updated_at,
+                dueDate: document.dueDate,
                 totalSteps: steps.length,
                 signedSteps: steps.filter(s => s.status === 'completed').length,
                 declinedBy: declinedStep ? declinedStep.signerName : null,
@@ -89,6 +90,7 @@ class DocumentService {
                 stepId: step.id,
                 documentId: step.document_id,
                 documentName: step.Document.fileName,
+                dueDate: step.Document.dueDate,
                 stepOrder: step.stepOrder,
                 accessToken: step.accessToken
             }));
@@ -108,7 +110,7 @@ class DocumentService {
 
         const inProgressDocs = myInitiated.filter(d => ['pending', 'in_progress'].includes(d.status));
         const completedThisMonth = myInitiated.filter(d => d.status === 'completed' && new Date(d.updatedAt) >= startOfMonth);
-        const overdueDocs = inProgressDocs.filter(d => new Date(d.createdAt) < fiveDaysAgo);
+        const overdueDocs = inProgressDocs.filter(d => d.dueDate ? (new Date(d.dueDate) < now) : (new Date(d.createdAt) < fiveDaysAgo));
 
         const statusBreakdown = {
             awaitingSignature: myInitiated.filter(d => d.status === 'pending').length,
@@ -978,12 +980,20 @@ class DocumentService {
 
     // Approve Document (initiator confirms the fully-signed document, triggers sealing)
     async approveDocument(documentId, initiatorId) {
-        const document = await Document.findByPk(documentId);
+        const document = await Document.findByPk(documentId, { include: [User] });
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
         if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
         if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
 
+        await AuditLog.create({
+            document_id: documentId,
+            action: 'DOCUMENT_APPROVED',
+            actorEmail: document.User ? document.User.email : 'Initiator',
+            actorIp: 'System'
+        });
+
         await this.finalizeDocument(documentId);
+        await document.reload();
         return { document };
     }
 
@@ -1061,10 +1071,17 @@ class DocumentService {
 
     // Approve Document (initiator reviews the fully-signed document, then seals it)
     async approveDocument(documentId, initiatorId) {
-        const document = await Document.findByPk(documentId);
+        const document = await Document.findByPk(documentId, { include: [User] });
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
         if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
         if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
+
+        await AuditLog.create({
+            document_id: documentId,
+            action: 'DOCUMENT_APPROVED',
+            actorEmail: document.User ? document.User.email : 'Initiator',
+            actorIp: 'System'
+        });
 
         await this.finalizeDocument(documentId);
         await document.reload();
@@ -1111,7 +1128,7 @@ class DocumentService {
             await AuditLog.create({
                 document_id: documentId,
                 action: 'DOCUMENT_COMPLETED_AND_SEALED',
-                actorEmail: 'system@dsign.local',
+                actorEmail: document.User.email,
                 resultingHash: masterHash
             });
 

@@ -254,6 +254,7 @@ class AdminService {
                 folder_id: document.folder_id,
                 createdAt: document.created_at,
                 updatedAt: document.updated_at,
+                dueDate: document.dueDate,
                 initiatorName: document.User ? document.User.name : 'Unknown',
                 initiatorEmail: document.User ? document.User.email : 'Unknown',
                 signerCount: steps.length,
