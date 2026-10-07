@@ -197,13 +197,12 @@ const appendAuditTrail = async (pdfBuffer, auditLogs, documentName) => {
         // Fallback to camelCase for Sequelize compatibility
         const actorEmail = log.actorEmail || log.actor_email;
         const createdAt = log.createdAt || log.created_at;
-        const ipAddress = log.ipAddress || log.ip_address || 'Unknown';
         const resultingHash = log.resultingHash || log.resulting_hash;
 
         page.drawText(`Actor: ${actorEmail}`, { x: 50, y: cursorY, size: 10, font });
         cursorY -= 15;
         
-        page.drawText(`Date: ${new Date(createdAt).toLocaleString('en-US')} | IP: ${ipAddress}`, { x: 50, y: cursorY, size: 10, font });
+        page.drawText(`Date: ${new Date(createdAt).toLocaleString('en-US')}`, { x: 50, y: cursorY, size: 10, font });
         cursorY -= 15;
         
         if (resultingHash) {
