@@ -26,7 +26,7 @@ const generateEmailHtml = ({ title, greeting, paragraphs = [], highlightBox = nu
             <!-- Header -->
             <div class="header" style="background-color: #0f172a; padding: 20px 24px; text-align: center;">
                 <span style="display: inline-block; vertical-align: middle; background-color: #ffffff; border-radius: 6px; padding: 6px; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-right: 10px;">
-                    <img src="https://img.icons8.com/ios-filled/50/0f172a/pen.png" width="16" height="16" alt="Pen" style="display: block; border: 0; margin: 0; padding: 0;" />
+                    <img src="${process.env.FRONTEND_URL}/DSign-Logo.svg" width="24" height="24" alt="DSign Logo" style="display: block; border: 0; margin: 0; padding: 0;" />
                 </span>
                 <h1 style="color: #ffffff; font-size: 18px; font-weight: 600; margin: 0; letter-spacing: 0.3px; display: inline-block; vertical-align: middle;">DSign Platform</h1>
             </div>
@@ -66,8 +66,8 @@ const generateEmailHtml = ({ title, greeting, paragraphs = [], highlightBox = nu
                     </a>
                 </div>
                 <p style="font-size: 12px; color: #64748b; margin-top: 28px; text-align: center; line-height: 1.6;">
-                    If the button above does not work, copy and paste the following link into your browser:<br>
-                    <a href="${cta.url}" style="color: #3b82f6; word-break: break-all; text-decoration: none; margin-top: 6px; display: inline-block;">${cta.url}</a>
+                    If the button above does not work, please right-click the link below (or long-press on mobile) and select "Copy Link", then paste it into your browser:<br>
+                    <a href="${cta.url}" style="color: #3b82f6; text-decoration: none; margin-top: 6px; display: inline-block; font-weight: 600;">Copy link and paste in browser</a>
                 </p>
                 ` : ''}
             </div>
@@ -311,6 +311,11 @@ const sendCompletionEmail = async (signerEmail, documentName, secureLink) => {
                 highlightBox: {
                     label: "Document Name",
                     value: documentName
+                },
+                alertBox: {
+                    type: 'warning',
+                    title: 'Important: Download Your Document',
+                    message: 'Please download and securely save your finalized document. Access to this link may expire in the future.'
                 },
                 cta: {
                     url: secureLink,

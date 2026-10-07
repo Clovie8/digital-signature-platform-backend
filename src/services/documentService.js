@@ -1160,6 +1160,7 @@ class DocumentService {
             throw error;
         }
     }
+    
     async renameDocument(userId, documentId, newName) {
         const document = await Document.findByPk(documentId);
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
