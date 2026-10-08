@@ -629,6 +629,38 @@ const sendPinResetEmail = async (toEmail, otp) => {
     }
 };
 
+const sendOverdueEmail = async (email, documentName) => {
+    try {
+        const html = generateEmailHtml({
+            title: 'Document Overdue',
+            paragraphs: [
+                'The following document is now past its designated due date.'
+            ],
+            highlightBox: {
+                label: 'DOCUMENT NAME',
+                value: documentName
+            },
+            alertBox: {
+                type: 'warning',
+                title: 'Still Pending',
+                message: 'This document is overdue, but it remains active. You can still complete your signature or review it.'
+            }
+        });
+
+        const mailOptions = {
+            from: `"Digital Signature Platform" <notifications@clovisdev.tech>`,
+            to: email,
+            subject: 'Overdue: ' + documentName,
+            html
+        };
+
+        await resend.emails.send(mailOptions);
+        console.log('[Email] Overdue notification sent to:', email);
+    } catch (error) {
+        console.error('[Email] Failed to send overdue notification to', email, error);
+    }
+};
+
 module.exports = {
     sendSignatureEmail,
     sendPasswordResetEmail,
@@ -648,4 +680,5 @@ module.exports = {
     sendInvitationEmail,
     sendAccountDeactivatedEmail,
     sendAccountReactivatedEmail,
+    sendOverdueEmail,
 };

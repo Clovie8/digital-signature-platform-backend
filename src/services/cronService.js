@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { Op } = require('sequelize');
 const { WorkflowStep, Document, AuditLog, User } = require('../models');
-const { sendReminderEmail, sendExpirationEmail } = require('../utils/emailManager');
+const { sendReminderEmail, sendOverdueEmail } = require('../utils/emailManager');
 
 const startCronJobs = () => {
     console.log('⏳ Cron Jobs Initialized.');
@@ -17,7 +17,7 @@ const startCronJobs = () => {
             const activeSteps = await WorkflowStep.findAll({
                 where: {
                     status: 'pending',
-                    otpCode: { [Op.ne]: null } 
+                    accessToken: { [Op.ne]: null } 
                 },
                 include: [{ 
                     model: Document,
@@ -55,8 +55,8 @@ const startCronJobs = () => {
                             }
                         }
                     } else if (hoursLeft > 4 && hoursLeft <= 24) {
-                        // Between 4 and 24 hours: Send one reminder if we haven't sent one in the last 12 hours
-                        if (hoursSinceLastReminder >= 12) {
+                        // Between 4 and 24 hours: Send one reminder every 4 hours
+                        if (hoursSinceLastReminder >= 4) {
                             shouldSend = true;
                         }
                     } else if (hoursLeft > 0 && hoursLeft <= 4) {
@@ -73,7 +73,7 @@ const startCronJobs = () => {
                             }
                         }
                     }
-                    // If hoursLeft <= 0, we don't send reminder, we void it in the next step.
+                    // If hoursLeft <= 0, we don't send reminder, we handle it in the overdue step.
                 }
 
                 if (shouldSend) {
@@ -95,52 +95,51 @@ const startCronJobs = () => {
                 console.log(`[Cron] Successfully sent ${remindersSent} reminder emails.`);
             }
 
-            // 2. EXPIRATION HANDLING
-            const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-            // Find documents pending where (dueDate is passed) OR (dueDate is null and updated_at < 7 days ago)
-            const expiredDocuments = await Document.findAll({
+            // 2. OVERDUE HANDLING
+            const overdueDocuments = await Document.findAll({
                 where: {
                     status: 'pending',
-                    [Op.or]: [
-                        { dueDate: { [Op.ne]: null, [Op.lt]: now } },
-                        { dueDate: null, updated_at: { [Op.lt]: sevenDaysAgo } }
-                    ]
+                    dueDate: { [Op.ne]: null, [Op.lt]: now }
                 },
                 include: [User]
             });
 
-            for (const doc of expiredDocuments) {
-                const steps = await WorkflowStep.findAll({ where: { document_id: doc.id } });
-                await doc.update({ status: 'voided' }); // Void the main document
+            let overdueNoticesSent = 0;
 
-                // Void all associated workflow steps
-                await WorkflowStep.update(
-                    { status: 'voided', otpCode: null, otpExpiresAt: null }, 
-                    { where: { document_id: doc.id } }
-                );
-
-                // Log the expiration in the Audit Trail
-                await AuditLog.create({
-                    document_id: doc.id,
-                    action: 'DOCUMENT_EXPIRED_AND_VOIDED',
-                    actorEmail: 'system@dsign.local',
-                    resultingHash: 'SYSTEM_VOID'
+            for (const doc of overdueDocuments) {
+                // Check if we already sent the overdue notification for this document
+                const existingLog = await AuditLog.findOne({
+                    where: {
+                        document_id: doc.id,
+                        action: 'OVERDUE_NOTIFICATION_SENT'
+                    }
                 });
 
-                // Gather all emails (Signers + Initiator)
-                const stepEmails = steps.map(s => s.signerEmail);
-                const initiatorEmail = doc.User.email;
-                const participantEmails = [...new Set([...stepEmails, initiatorEmail])];
+                if (!existingLog) {
+                    const steps = await WorkflowStep.findAll({ where: { document_id: doc.id } });
+                    
+                    // Log the overdue notification in the Audit Trail
+                    await AuditLog.create({
+                        document_id: doc.id,
+                        action: 'OVERDUE_NOTIFICATION_SENT',
+                        actorEmail: 'system@dsign.local'
+                    });
 
-                // Fire the expiration emails
-                for (const email of participantEmails) {
-                    await sendExpirationEmail(email, doc.fileName);
+                    // Gather all emails (Signers + Initiator)
+                    const stepEmails = steps.map(s => s.signerEmail);
+                    const initiatorEmail = doc.User.email;
+                    const participantEmails = [...new Set([...stepEmails, initiatorEmail])];
+
+                    // Fire the overdue emails
+                    for (const email of participantEmails) {
+                        await sendOverdueEmail(email, doc.fileName);
+                    }
+                    overdueNoticesSent++;
                 }
             }
 
-            if (expiredDocuments.length > 0) {
-                console.log(`[Cron] Automatically voided ${expiredDocuments.length} expired documents.`);
+            if (overdueNoticesSent > 0) {
+                console.log(`[Cron] Marked ${overdueNoticesSent} documents as overdue and sent notifications.`);
             }
         } catch (error) {
             console.error('[Cron] Failed to process reminders/expiration:', error);
