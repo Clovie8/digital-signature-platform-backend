@@ -50,7 +50,8 @@ const uploadSavedSignature = asyncHandler(async (req, res) => {
     if (!signerName || !signerEmail) throw new ValidationError('Signer name and email are required.');
 
     const fileExt = req.file.originalname.split('.').pop() || 'png';
-    const r2FileName = `user-signatures/${crypto.randomUUID()}.${fileExt}`;
+    const folderPrefix = saveForFuture === 'true' ? 'user-signatures' : 'temp-signatures';
+    const r2FileName = `${folderPrefix}/${crypto.randomUUID()}.${fileExt}`;
 
     const signatureUrl = await uploadImageToR2(req.file.buffer, r2FileName);
 

@@ -62,7 +62,7 @@ class TemplateService {
         });
     }
 
-    async getTemplate(templateId, userId) {
+    async getTemplate(templateId, userId, isAdmin = false) {
         const template = await Template.findByPk(templateId, {
             include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
         });
@@ -70,7 +70,7 @@ class TemplateService {
 
         // Note: access control logic should also check folder access in a full implementation.
         // For now, we enforce owner or shared signers.
-        const hasAccess = template.created_by === userId || template.TemplateSigners.length > 0;
+        const hasAccess = isAdmin || template.created_by === userId || template.TemplateSigners.length > 0;
         
         if (!hasAccess) {
             // Also check folder access
@@ -95,13 +95,13 @@ class TemplateService {
         };
     }
 
-    async getTemplateDownloadUrl(templateId, userId) {
+    async getTemplateDownloadUrl(templateId, userId, isAdmin = false) {
         const templateModel = await Template.findByPk(templateId, {
             include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
         });
         if (!templateModel) throw new Error('TEMPLATE_NOT_FOUND');
         
-        const hasAccess = templateModel.created_by === userId || templateModel.TemplateSigners.length > 0;
+        const hasAccess = isAdmin || templateModel.created_by === userId || templateModel.TemplateSigners.length > 0;
         if (!hasAccess) {
             const folderService = require('./folderService');
             const folders = await folderService.getAllFolders(userId);
@@ -116,7 +116,7 @@ class TemplateService {
     }
 
     // Use Template (clone its file + field layout into a new draft document)
-    async useTemplate(templateId, userId) {
+    async useTemplate(templateId, userId, folder_id = null) {
         const template = await Template.findByPk(templateId, {
             include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
         });
@@ -136,7 +136,12 @@ class TemplateService {
         const fileBuffer = await getFileBufferFromR2(template.filePath);
         const newFileKey = await uploadBufferToR2(fileBuffer, template.fileName);
 
-        const signers = (template.templateConfig?.signers || []).map(s => ({ ...s, name: '', email: '' }));
+        const signers = (template.templateConfig?.signers || []).map((s, index) => ({ 
+            ...s, 
+            id: s.id || s.order || (index + 1),
+            name: s.name || '', 
+            email: s.email || '' 
+        }));
         const fields = template.templateConfig?.fields || [];
 
         const document = await Document.create({
@@ -145,6 +150,7 @@ class TemplateService {
             fileName: template.fileName,
             originalFilePath: newFileKey,
             status: 'draft',
+            folder_id: folder_id || null,
             draftConfig: { signers, fields, currentStep: 2 }
         });
 
@@ -180,9 +186,12 @@ class TemplateService {
         const sourceFields = document.draftConfig?.fields || [];
 
         const templateSigners = sourceSigners.map(s => ({
+            id: s.id,
+            name: s.name || '',
+            email: s.email || '',
             role: s.role,
             color: s.color,
-            order: s.id
+            order: s.id || s.order
         }));
 
         const template = await Template.create({
@@ -258,6 +267,21 @@ class TemplateService {
                     })
                 )
         );
+    }
+    async renameTemplate(userId, templateId, newName) {
+        const template = await Template.findByPk(templateId);
+        if (!template) throw new Error('TEMPLATE_NOT_FOUND');
+        if (template.created_by !== userId) throw new Error('FORBIDDEN');
+        
+        let sanitizedName = newName.trim();
+        if (!sanitizedName.toLowerCase().endsWith('.pdf')) {
+            sanitizedName += '.pdf';
+        }
+        
+        template.fileName = sanitizedName;
+        template.name = sanitizedName;
+        await template.save();
+        return template;
     }
 }
 

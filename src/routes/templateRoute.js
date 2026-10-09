@@ -12,5 +12,6 @@ router.post('/templates/upload', auth, upload.single('pdf_file'), templateContro
 router.post('/templates/:id/use', auth, templateController.useTemplate);
 router.delete('/templates/:id', auth, templateController.deleteTemplate);
 router.post('/documents/:id/save-as-template', auth, templateController.saveAsTemplate);
+router.put('/templates/:id/rename', auth, templateController.renameTemplate);
 
 module.exports = router;

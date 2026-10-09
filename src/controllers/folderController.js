@@ -1,138 +1,123 @@
 const folderService = require('../services/folderService');
+const asyncHandler = require('../utils/asyncHandler');
+const { ValidationError, UnauthorizedError } = require('../utils/errors');
 
-const createFolder = async (req, res) => {
+const createFolder = asyncHandler(async (req, res) => {
     try {
         const { name, parentId, type } = req.body;
         const userId = req.user.userId;
         const folder = await folderService.createFolder(name, parentId, userId, type);
         res.status(201).json({ folder });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        throw new ValidationError(error.message);
     }
-};
+});
 
-
-const deleteFolder = async (req, res) => {
+const deleteFolder = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
-        await folderService.deleteFolder(id, userId, isAdmin);
+        await folderService.deleteFolder(id, userId);
         res.status(200).json({ success: true });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        throw new ValidationError(error.message);
     }
-};
+});
 
-const getDirectory = async (req, res) => {
+const getDirectory = asyncHandler(async (req, res) => {
     try {
         const { folderId } = req.query;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
         
-        const contents = await folderService.getDirectoryContents(folderId || null, userId, isAdmin);
+        const contents = await folderService.getDirectoryContents(folderId || null, userId);
         res.status(200).json(contents);
     } catch (error) {
-        res.status(403).json({ error: error.message });
+        throw new UnauthorizedError(error.message);
     }
-};
+});
 
-
-const moveBulkItems = async (req, res) => {
+const moveBulkItems = asyncHandler(async (req, res) => {
     try {
         const { items, destinationFolderId } = req.body;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
         
-        const results = await folderService.moveBulkItems(items, destinationFolderId, userId, isAdmin);
+        const results = await folderService.moveBulkItems(items, destinationFolderId, userId);
         res.status(200).json({ success: true, results });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        throw new ValidationError(error.message);
     }
-};
+});
 
-const moveItem = async (req, res) => {
+const moveItem = asyncHandler(async (req, res) => {
     try {
         const { itemId, itemType, destinationFolderId } = req.body;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
         
-        const result = await folderService.moveItem(itemId, itemType, destinationFolderId, userId, isAdmin);
+        const result = await folderService.moveItem(itemId, itemType, destinationFolderId, userId);
         res.status(200).json({ success: true, item: result });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        throw new ValidationError(error.message);
     }
-};
+});
 
-
-const getAllFolders = async (req, res) => {
+const getAllFolders = asyncHandler(async (req, res) => {
     try {
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
         const parentId = req.query.parentId;
-        const folders = await folderService.getAllFolders(userId, isAdmin, parentId);
+        const folders = await folderService.getAllFolders(userId, parentId);
         res.status(200).json({ folders });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        throw new ValidationError(error.message);
     }
-};
+});
 
-
-const getFolderAccess = async (req, res) => {
+const getFolderAccess = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
-        const data = await folderService.getFolderAccess(id, userId, isAdmin);
+        const data = await folderService.getFolderAccess(id, userId);
         res.status(200).json(data);
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        throw new ValidationError(error.message);
     }
-};
+});
 
-const updateFolderAccess = async (req, res) => {
+const updateFolderAccess = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
         const { targetUserId, role } = req.body;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
-        const data = await folderService.updateFolderAccess(id, targetUserId, role, userId, isAdmin);
+        const data = await folderService.updateFolderAccess(id, targetUserId, role, userId);
         res.status(200).json(data);
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        throw new ValidationError(error.message);
     }
-};
+});
 
-const renameFolder = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const { name } = req.body;
-        const userId = req.user.userId;
-        
-        if (!name || !name.trim()) {
-            return res.status(400).json({ error: 'Folder name is required' });
-        }
-        
-        const folder = await folderService.renameFolder(userId, id, name);
-        res.json({ message: 'Folder renamed successfully', folder });
-    } catch (error) {
-        next(error);
+const renameFolder = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { name } = req.body;
+    const userId = req.user.userId;
+    
+    if (!name || !name.trim()) {
+        throw new ValidationError('Folder name is required');
     }
-};
+    
+    const folder = await folderService.renameFolder(userId, id, name);
+    res.json({ message: 'Folder renamed successfully', folder });
+});
 
-
-const updateFolderPublicStatus = async (req, res) => {
+const updateFolderPublicStatus = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
         const { isPublic } = req.body;
         const userId = req.user.userId;
-        const isAdmin = req.user.role === 'admin';
-        const data = await folderService.updatePublicStatus(id, isPublic, userId, isAdmin);
+        const data = await folderService.updatePublicStatus(id, isPublic, userId);
         res.status(200).json(data);
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        throw new ValidationError(error.message);
     }
-};
+});
 
 module.exports = {
     updateFolderPublicStatus,
@@ -146,5 +131,3 @@ module.exports = {
     deleteFolder,
     renameFolder
 };
-
-

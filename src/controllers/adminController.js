@@ -93,4 +93,9 @@ const getTurnaroundAudit = asyncHandler(async (req, res) => {
     res.status(200).json(data);
 });
 
-module.exports = { listUsers, listAuditLogs, inviteUser, inviteUsersCsv, updateUserRole, deactivateUser, reactivateUser, getTurnaroundAudit };
+const getAllFiles = asyncHandler(async (req, res) => {
+    const data = await adminService.getAllSystemFiles();
+    res.status(200).json(data);
+});
+
+module.exports = { listUsers, listAuditLogs, inviteUser, inviteUsersCsv, updateUserRole, deactivateUser, reactivateUser, getTurnaroundAudit, getAllFiles };

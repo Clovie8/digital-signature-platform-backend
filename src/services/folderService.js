@@ -2,8 +2,7 @@ const { Folder, FolderAccess, Document, User, Template, TemplateSigner, sequeliz
 
 class FolderService {
     // 1. Get Effective Role using Recursive CTE
-    async getEffectiveRole(folderId, userId, isAdmin) {
-        if (isAdmin) return 'manager';
+    async getEffectiveRole(folderId, userId) {
         
         const folder = await Folder.findByPk(folderId);
         if (!folder) throw new Error('FOLDER_NOT_FOUND');
@@ -63,11 +62,11 @@ class FolderService {
     }
 
     // 3. Get Directory Contents
-    async getDirectoryContents(folderId, userId, isAdmin) {
+    async getDirectoryContents(folderId, userId) {
         let role = 'manager';
         
         if (folderId) {
-            role = await this.getEffectiveRole(folderId, userId, isAdmin);
+            role = await this.getEffectiveRole(folderId, userId);
             if (!role) throw new Error('ACCESS_DENIED');
         }
 
@@ -107,7 +106,7 @@ class FolderService {
 
         const foldersWithRoles = [];
         for (const f of folders) {
-            const fRole = await this.getEffectiveRole(f.id, userId, isAdmin);
+            const fRole = await this.getEffectiveRole(f.id, userId);
             foldersWithRoles.push({
                 ...f.toJSON(),
                 access_role: fRole
@@ -118,26 +117,19 @@ class FolderService {
         const userEmail = userObj ? userObj.email : '';
         
         let docWhere = {};
-        if (isAdmin) {
-            if (folderId) {
-                docWhere = { folder_id: folderId };
-            } else {
-                docWhere = { folder_id: null };
-            }
-        } else {
-            const sentByYouIds = await Document.findAll({
-                  where: { initiator_id: userId, folder_id: folderId || null },
-                  attributes: ['id']
-            });
-            const pendingOnYouIds = await Document.findAll({
-                  where: { folder_id: folderId || null, status: { [Op.ne]: 'draft' } },
-                  attributes: ['id'],
-                  include: [{ model: sequelize.models.WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
-            });
-            const documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
-            
-            docWhere = { id: { [Op.in]: documentIds } };
-        }
+        
+        const sentByYouIds = await Document.findAll({
+              where: { initiator_id: userId, folder_id: folderId || null },
+              attributes: ['id']
+        });
+        const pendingOnYouIds = await Document.findAll({
+              where: { folder_id: folderId || null, status: { [Op.ne]: 'draft' } },
+              attributes: ['id'],
+              include: [{ model: sequelize.models.WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
+        });
+        const documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
+        
+        docWhere = { id: { [Op.in]: documentIds } };
 
         
 
@@ -244,12 +236,12 @@ class FolderService {
 
     // 4. Move Item (File or Folder)
     
-    async moveBulkItems(items, destinationFolderId, userId, isAdmin) {
+    async moveBulkItems(items, destinationFolderId, userId) {
         const results = [];
         // Sequential for simplicity and avoiding deadlock
         for (const item of items) {
             try {
-                const movedItem = await this.moveItem(item.id, item.type, destinationFolderId, userId, isAdmin);
+                const movedItem = await this.moveItem(item.id, item.type, destinationFolderId, userId);
                 results.push({ id: item.id, type: item.type, success: true });
             } catch (err) {
                 results.push({ id: item.id, type: item.type, success: false, error: err.message });
@@ -258,20 +250,20 @@ class FolderService {
         return results;
     }
 
-    async moveItem(itemId, itemType, destinationFolderId, userId, isAdmin) {
+    async moveItem(itemId, itemType, destinationFolderId, userId) {
         // Destination check
         if (destinationFolderId) {
-            const destRole = await this.getEffectiveRole(destinationFolderId, userId, isAdmin);
+            const destRole = await this.getEffectiveRole(destinationFolderId, userId);
             if (destRole !== 'editor' && destRole !== 'manager') throw new Error('NO_WRITE_ACCESS_DESTINATION');
         }
 
         if (itemType === 'folder') {
             const folder = await Folder.findByPk(itemId);
             if (!folder) throw new Error('FOLDER_NOT_FOUND');
-            const sourceRole = await this.getEffectiveRole(folder.id, userId, isAdmin);
+            const sourceRole = await this.getEffectiveRole(folder.id, userId);
             if (sourceRole !== 'manager' && sourceRole !== 'editor') throw new Error('NO_WRITE_ACCESS_SOURCE');
             
-            if (!isAdmin && folder.owner_id !== userId) {
+            if (folder.owner_id !== userId) {
                 if (!destinationFolderId) throw new Error('CANNOT_MOVE_TO_ROOT');
                 const destFolder = await Folder.findByPk(destinationFolderId);
                 if (!destFolder || destFolder.owner_id !== folder.owner_id) throw new Error('CANNOT_MOVE_OUT_OF_SHARED_SPACE');
@@ -304,13 +296,13 @@ class FolderService {
             if (!document) throw new Error('DOCUMENT_NOT_FOUND');
             // If the document is inside a folder, check source folder access
             if (document.folder_id) {
-                const sourceRole = await this.getEffectiveRole(document.folder_id, userId, isAdmin);
+                const sourceRole = await this.getEffectiveRole(document.folder_id, userId);
                 if (sourceRole !== 'manager' && sourceRole !== 'editor') throw new Error('NO_WRITE_ACCESS_SOURCE');
             } else {
-                if (!isAdmin && document.initiator_id !== userId) throw new Error('NOT_OWNER');
+                if (document.initiator_id !== userId) throw new Error('NOT_OWNER');
             }
 
-            if (!isAdmin && document.initiator_id !== userId) {
+            if (document.initiator_id !== userId) {
                 if (!destinationFolderId) throw new Error('CANNOT_MOVE_TO_ROOT');
                 const destFolder = await Folder.findByPk(destinationFolderId);
                 if (!destFolder || destFolder.owner_id !== document.initiator_id) throw new Error('CANNOT_MOVE_OUT_OF_SHARED_SPACE');
@@ -323,13 +315,13 @@ class FolderService {
             const template = await Template.findByPk(itemId);
             if (!template) throw new Error('TEMPLATE_NOT_FOUND');
             if (template.folder_id) {
-                const sourceRole = await this.getEffectiveRole(template.folder_id, userId, isAdmin);
+                const sourceRole = await this.getEffectiveRole(template.folder_id, userId);
                 if (sourceRole !== 'manager' && sourceRole !== 'editor') throw new Error('NO_WRITE_ACCESS_SOURCE');
             } else {
-                if (!isAdmin && template.created_by !== userId) throw new Error('NOT_OWNER');
+                if (template.created_by !== userId) throw new Error('NOT_OWNER');
             }
 
-            if (!isAdmin && template.created_by !== userId) {
+            if (template.created_by !== userId) {
                 if (!destinationFolderId) throw new Error('CANNOT_MOVE_TO_ROOT');
                 const destFolder = await Folder.findByPk(destinationFolderId);
                 if (!destFolder || destFolder.owner_id !== template.created_by) throw new Error('CANNOT_MOVE_OUT_OF_SHARED_SPACE');
@@ -343,13 +335,10 @@ class FolderService {
         }
     }
 
-    async getAllFolders(userId, isAdmin = false, parentId = undefined) {
+    async getAllFolders(userId, parentId = undefined) {
         let accessibleFolderIds = [];
-        if (isAdmin) {
-            const allFolders = await Folder.findAll({ attributes: ['id'] });
-            accessibleFolderIds = allFolders.map(f => f.id);
-        } else {
-            const query = `
+        
+        const query = `
                 WITH RECURSIVE AccessibleFolders AS (
                     SELECT f.id, f.parent_folder_id 
                     FROM "folders" f
@@ -369,7 +358,6 @@ class FolderService {
                 type: sequelize.QueryTypes.SELECT
             });
             accessibleFolderIds = results.map(r => r.id);
-        }
 
         const { Op } = require('sequelize');
         const whereClause = { id: { [Op.in]: accessibleFolderIds } };
@@ -384,7 +372,7 @@ class FolderService {
         
         const foldersWithRoles = [];
         for (const f of folders) {
-            const fRole = await this.getEffectiveRole(f.id, userId, isAdmin);
+            const fRole = await this.getEffectiveRole(f.id, userId);
             foldersWithRoles.push({
                 ...f.toJSON(),
                 access_role: fRole
@@ -395,12 +383,12 @@ class FolderService {
     }
 
 
-    async getFolderAccess(folderId, userId, isAdmin) {
+    async getFolderAccess(folderId, userId) {
         const folder = await Folder.findByPk(folderId);
         if (!folder) throw new Error('Folder not found');
         
-        const currentRole = await this.getEffectiveRole(folderId, userId, isAdmin);
-        if (!currentRole && !isAdmin && folder.owner_id !== userId) {
+        const currentRole = await this.getEffectiveRole(folderId, userId);
+        if (!currentRole && folder.owner_id !== userId) {
             throw new Error('Not authorized to view access');
         }
 
@@ -423,12 +411,12 @@ class FolderService {
         };
     }
 
-    async updateFolderAccess(folderId, targetUserId, role, currentUserId, isAdmin) {
+    async updateFolderAccess(folderId, targetUserId, role, currentUserId) {
         const folder = await Folder.findByPk(folderId);
         if (!folder) throw new Error('Folder not found');
         
-        const currentRole = await this.getEffectiveRole(folderId, currentUserId, isAdmin);
-        if (currentRole !== 'manager' && folder.owner_id !== currentUserId && !isAdmin) {
+        const currentRole = await this.getEffectiveRole(folderId, currentUserId);
+        if (currentRole !== 'manager' && folder.owner_id !== currentUserId) {
             throw new Error('Not authorized to modify access');
         }
 
@@ -447,12 +435,12 @@ class FolderService {
         return { success: true };
     }
 
-    async updatePublicStatus(folderId, isPublic, currentUserId, isAdmin) {
+    async updatePublicStatus(folderId, isPublic, currentUserId) {
         const folder = await Folder.findByPk(folderId);
         if (!folder) throw new Error('FOLDER_NOT_FOUND');
         
-        const currentRole = await this.getEffectiveRole(folderId, currentUserId, isAdmin);
-        if (currentRole !== 'manager' && folder.owner_id !== currentUserId && !isAdmin) {
+        const currentRole = await this.getEffectiveRole(folderId, currentUserId);
+        if (currentRole !== 'manager' && folder.owner_id !== currentUserId) {
             throw new Error('NOT_AUTHORIZED');
         }
 
@@ -465,7 +453,7 @@ class FolderService {
         const folder = await Folder.findByPk(folderId);
         if (!folder) throw new Error('FOLDER_NOT_FOUND');
         
-        const role = await this.getEffectiveRole(folderId, userId, false);
+        const role = await this.getEffectiveRole(folderId, userId);
         if (role !== 'manager' && folder.owner_id !== userId) {
             throw new Error('NO_WRITE_ACCESS');
         }
@@ -475,12 +463,12 @@ class FolderService {
         return folder;
     }
 
-    async deleteFolder(folderId, userId, isAdmin) {
+    async deleteFolder(folderId, userId) {
         const folder = await Folder.findByPk(folderId);
         if (!folder) throw new Error('FOLDER_NOT_FOUND');
         
-        const role = await this.getEffectiveRole(folderId, userId, isAdmin);
-        if (role !== 'manager' && folder.owner_id !== userId && !isAdmin) {
+        const role = await this.getEffectiveRole(folderId, userId);
+        if (role !== 'manager' && folder.owner_id !== userId) {
             throw new Error('NOT_AUTHORIZED_TO_DELETE');
         }
         

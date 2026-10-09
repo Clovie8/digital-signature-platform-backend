@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const { User, AuditLog } = require('../models');
 require('dotenv').config();
 
-const TENANT_ID = process.env.MICROSOFT_TENANT_ID;
+const TENANT_ID = process.env.MICROSOFT_TENANT_ID || 'common';
 const CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
 const REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI;
@@ -24,18 +24,46 @@ class MicrosoftAuthService {
         return `${AUTHORIZE_URL}?${params.toString()}`;
     }
 
+    getRedirectPage() {
+        const authUrl = this.getAuthorizationUrl();
+        return `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Redirecting to Microsoft Sign-In — DSign</title>
+                <meta http-equiv="refresh" content="1;url=${authUrl}">
+            </head>
+            <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #FAFAFA;">
+                <div style="text-align: center;">
+                    <p style="color: #475569; font-size: 14px;">Redirecting you to sign in with Microsoft…</p>
+                    <p style="margin-top: 12px;">
+                        <a href="${authUrl}" style="color: #0f172a; font-size: 13px;">Click here if you're not redirected automatically</a>
+                    </p>
+                </div>
+            </body>
+            </html>
+        `;
+    }
+
     async handleCallback(code, ipAddress) {
-        const tokenRes = await axios.post(
-            TOKEN_URL,
-            new URLSearchParams({
-                client_id: CLIENT_ID,
-                client_secret: CLIENT_SECRET,
-                code,
-                redirect_uri: REDIRECT_URI,
-                grant_type: 'authorization_code',
-            }),
-            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-        );
+        let tokenRes;
+        try {
+            tokenRes = await axios.post(
+                TOKEN_URL,
+                new URLSearchParams({
+                    client_id: CLIENT_ID,
+                    client_secret: CLIENT_SECRET,
+                    code,
+                    redirect_uri: REDIRECT_URI,
+                    grant_type: 'authorization_code',
+                }),
+                { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+            );
+        } catch (err) {
+            console.error('Microsoft token exchange failed:', err.response?.data);
+            throw err;
+        }
 
         const accessToken = tokenRes.data.access_token;
 
@@ -55,7 +83,11 @@ class MicrosoftAuthService {
             user = await User.findOne({ where: { email } });
 
             if (user) {
-                await user.update({ microsoftId, authProvider: user.authProvider === 'local' ? 'local' : 'microsoft' });
+               
+                await user.update({
+                    microsoftId,
+                    authProvider: user.authProvider === 'local' ? 'local' : 'microsoft',
+                });
             } else {
                 user = await User.create({
                     name,
@@ -76,7 +108,7 @@ class MicrosoftAuthService {
         AuditLog.create({
             action: 'USER_LOGIN_MICROSOFT',
             actorEmail: user.email,
-            ipAddress
+            ipAddress,
         }).catch(err => console.error('Failed to write Microsoft login audit log:', err));
 
         return { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };

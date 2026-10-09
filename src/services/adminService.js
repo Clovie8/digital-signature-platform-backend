@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { User, AuditLog, Document } = require('../models');
+const { User, AuditLog, Document, Template, WorkflowStep } = require('../models');
 const { sendInvitationEmail, sendAccountDeactivatedEmail, sendAccountReactivatedEmail } = require('../utils/emailManager');
 
 class AdminService {
@@ -142,7 +142,7 @@ class AdminService {
             where: { status: 'completed' },
             include: [{
                 model: Document,
-                attributes: ['id', 'created_at']
+                attributes: ['id', 'created_at', 'fileName']
             }],
             order: [['document_id', 'ASC'], ['stepOrder', 'ASC']]
         });
@@ -186,12 +186,21 @@ class AdminService {
                     name: step.signerName,
                     email: email,
                     totalHours: 0,
-                    count: 0
+                    count: 0,
+                    history: []
                 };
             }
 
             signerStats[email].totalHours += turnaroundHours;
             signerStats[email].count += 1;
+            
+            signerStats[email].history.push({
+                fileName: step.Document.fileName || 'Untitled Document',
+                initiatedAt: step.Document.created_at,
+                reachedAt: startedAt,
+                signedAt: step.signedAt,
+                turnaroundHours: turnaroundHours
+            });
 
             totalGlobalHours += turnaroundHours;
             globalCount += 1;
@@ -208,7 +217,8 @@ class AdminService {
                 email: s.email,
                 documentsSigned: s.count,
                 avgTurnaroundHours: avgHours,
-                rating
+                rating,
+                history: s.history
             };
         });
 
@@ -221,6 +231,59 @@ class AdminService {
             globalAvgTurnaroundHours,
             totalSigners: signers.length,
             signers
+        };
+    }
+    async getAllSystemFiles() {
+        const documents = await Document.findAll({
+            include: [{ model: User }, { model: WorkflowStep }],
+            order: [['updated_at', 'DESC']]
+        });
+
+        const formattedDocs = documents.map(document => {
+            const steps = document.WorkflowSteps || [];
+            const declinedStep = steps.find(s => s.status === 'declined');
+            const orderedPendingSteps = steps
+                .filter(s => s.status === 'pending')
+                .sort((a, b) => a.stepOrder - b.stepOrder);
+            const activeStep = orderedPendingSteps.length ? orderedPendingSteps[0] : null;
+
+            return {
+                id: document.id,
+                fileName: document.fileName,
+                status: document.status,
+                folder_id: document.folder_id,
+                createdAt: document.created_at,
+                updatedAt: document.updated_at,
+                dueDate: document.dueDate,
+                initiatorName: document.User ? document.User.name : 'Unknown',
+                initiatorEmail: document.User ? document.User.email : 'Unknown',
+                signerCount: steps.length,
+                activeSigner: activeStep ? activeStep.signerEmail : null,
+                declinedBy: declinedStep ? declinedStep.signerEmail : null
+            };
+        });
+
+        const templates = await Template.findAll({
+            include: [{ model: User }],
+            order: [['created_at', 'DESC']]
+        });
+
+        const formattedTemplates = templates.map(t => ({
+            id: t.id,
+            name: t.name,
+            fileName: t.fileName,
+            folder_id: t.folder_id,
+            signerCount: (t.templateConfig?.signers || []).length,
+            usageCount: t.usageCount,
+            createdAt: t.created_at,
+            updatedAt: t.updated_at,
+            creatorName: t.User ? t.User.name : 'Unknown',
+            creatorEmail: t.User ? t.User.email : 'Unknown',
+        }));
+
+        return {
+            documents: formattedDocs,
+            templates: formattedTemplates
         };
     }
 }

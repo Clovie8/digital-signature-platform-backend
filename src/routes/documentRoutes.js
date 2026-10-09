@@ -1,6 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
+const rateLimit = require('express-rate-limit');
+
+const uploadLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // Limit each IP to 20 uploads per window
+    message: { error: 'Too many uploads from this IP, please try again later.' }
+});
 
 const {
     listDocuments,
@@ -23,12 +30,16 @@ const {
     declineSigning,
     resumeDocument,
     reviseDocument,
-    editSigner
+    editSigner,
+    renameDocument
 } = require('../controllers/documentController');
 
 const authenticateToken = require('../middleware/authMiddleware');
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024 } // 15MB limit
+});
 
 // Protected Creator Routes — specific paths BEFORE /:id
 router.get('/', authenticateToken, listDocuments);
@@ -36,7 +47,7 @@ router.get('/pending-approvals', authenticateToken, listPendingApprovals);
 router.get('/dashboard-summary', authenticateToken, getDashboardSummary);
 router.get('/:id', authenticateToken, getDocument);
 router.get('/:id/versions', authenticateToken, getVersionHistory);
-router.post('/upload', authenticateToken, upload.single('pdf_file'), uploadDocument);
+router.post('/upload', authenticateToken, uploadLimiter, upload.single('pdf_file'), uploadDocument);
 router.post('/:id/dispatch', authenticateToken, dispatchDocument);
 router.post('/:id/resume', authenticateToken, resumeDocument);
 router.post('/:id/revise', authenticateToken, reviseDocument);
@@ -47,10 +58,13 @@ router.get('/:id/review', authenticateToken, getReviewFile);
 router.post('/:id/approve', authenticateToken, approveDocument);
 router.get('/:id/file', authenticateToken, getDraftFile);
 router.patch('/:id/draft-config', authenticateToken, saveDraftConfig);
-router.post('/:id/file', authenticateToken, upload.single('pdf_file'), replaceDraftFile);
+router.post('/:id/file', authenticateToken, uploadLimiter, upload.single('pdf_file'), replaceDraftFile);
 
 // Edit Signer Route
 router.put('/:documentId/steps/:stepId', authenticateToken, editSigner);
+
+// Rename Document Route
+router.put('/:id/rename', authenticateToken, renameDocument);
 
 // Public Signer Routes (Auth handled via Tokenized Magic Links in URL)
 router.get('/sign/:token', getSigningView);

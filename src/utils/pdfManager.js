@@ -1,5 +1,8 @@
 const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const fontkit = require('@pdf-lib/fontkit');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 // Initialize the S3 Client for Cloudflare R2
@@ -15,8 +18,17 @@ const s3 = new S3Client({
 const stampDocument = async (pdfBuffer, fields, completedValues) => {
     try {
         const pdfDoc = await PDFDocument.load(pdfBuffer);
+        
+        // Register fontkit to allow embedding custom TTF fonts
+        pdfDoc.registerFontkit(fontkit);
+
         const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-        const cursiveFont = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
+        
+        // Load custom handwriting font for signatures and initials
+        const fontPath = path.join(__dirname, '..', 'assets', 'fonts', 'Caveat-Regular.ttf');
+        const fontBytes = fs.readFileSync(fontPath);
+        const cursiveFont = await pdfDoc.embedFont(fontBytes);
+        
         const pages = pdfDoc.getPages();
 
         for (const field of fields) {
@@ -36,18 +48,36 @@ const stampDocument = async (pdfBuffer, fields, completedValues) => {
             const pdfFieldHeight = field.height ? (field.height / 750) * width : undefined; 
 
 
-            // Check if the frontend sent a drawn PNG image
-            if (value.startsWith('data:image/png;base64,')) {
-                // Embed the PNG into the PDF
-                const pngImage = await pdfDoc.embedPng(value);
+            // Check if the frontend sent an image
+            if (value.startsWith('data:image/')) {
+                let image;
+                if (value.includes('image/png')) {
+                    image = await pdfDoc.embedPng(value);
+                } else if (value.includes('image/jpeg') || value.includes('image/jpg')) {
+                    image = await pdfDoc.embedJpg(value);
+                } else {
+                    continue; // unsupported
+                }
                 
-                // If we have custom resized dimensions, use them. Otherwise default scale.
-                const drawWidth = pdfFieldWidth || (pngImage.width * 0.3);
-                const drawHeight = pdfFieldHeight || (pngImage.height * 0.3);
+                const imgAspect = image.width / image.height;
+                const boxAspect = pdfFieldWidth / pdfFieldHeight;
 
-                page.drawImage(pngImage, {
-                    x: targetX,
-                    y: targetY - drawHeight,
+                let drawWidth, drawHeight;
+                if (imgAspect > boxAspect) {
+                    drawWidth = pdfFieldWidth;
+                    drawHeight = pdfFieldWidth / imgAspect;
+                } else {
+                    drawHeight = pdfFieldHeight;
+                    drawWidth = pdfFieldHeight * imgAspect;
+                }
+
+                // Center the image inside the bounding box
+                const offsetX = (pdfFieldWidth - drawWidth) / 2;
+                const offsetY = (pdfFieldHeight - drawHeight) / 2;
+
+                page.drawImage(image, {
+                    x: targetX + offsetX,
+                    y: (targetY - pdfFieldHeight) + offsetY,
                     width: drawWidth,
                     height: drawHeight,
                 });
@@ -66,18 +96,53 @@ const stampDocument = async (pdfBuffer, fields, completedValues) => {
                 }
 
                 const isSignature = field.type === 'Signature' || field.type === 'Initial';
+                const baseFontSize = isSignature ? 24 : 14;
+                const dynamicFontSize = customFontSize || baseFontSize;
+                
+                // Scale the CSS pixel font size (based on 750px canvas) to the actual PDF document width in points
+                const scaledFontSize = (dynamicFontSize / 750) * width;
+                
+                const activeFont = isSignature ? cursiveFont : font;
+                const textWidth = activeFont.widthOfTextAtSize(textToStamp, scaledFontSize);
+                
+                let textX = targetX;
+                if (isSignature) {
+                    // Center align signatures/initials
+                    textX = targetX + (pdfFieldWidth - textWidth) / 2;
+                } else {
+                    // Left align with small padding (4px in 750px scale)
+                    const paddingX = (4 / 750) * width;
+                    textX = targetX + paddingX;
+                }
+                
+                const isMultiline = field.type === 'Text Box' || field.type === 'Name';
+                
+                // Vertically center using the baseline for single line
+                const centerY = targetY - (pdfFieldHeight / 2) - (scaledFontSize / 3);
 
-                // Dynamically scale font size if the box was resized vertically
-                const baseFontSize = isSignature ? 24 : 12;
-                const dynamicFontSize = customFontSize || (pdfFieldHeight ? Math.max(12, Math.min(baseFontSize * 2, pdfFieldHeight * 0.6)) : baseFontSize);
-
-                page.drawText(textToStamp, {
-                    x: targetX,
-                    y: targetY - (pdfFieldHeight ? pdfFieldHeight : 12), 
-                    size: dynamicFontSize,
-                    font: isSignature ? cursiveFont : font,
+                const drawOptions = {
+                    x: textX,
+                    size: scaledFontSize,
+                    font: activeFont,
                     color: rgb(0, 0, 0), 
-                });
+                };
+
+                if (isMultiline) {
+                    const paddingX = (4 / 750) * width;
+                    drawOptions.maxWidth = pdfFieldWidth - (paddingX * 2);
+                    drawOptions.lineHeight = scaledFontSize * 1.2;
+                    
+                    // If the box is multiline (taller than 2 lines), anchor to top-left. Else center vertically.
+                    if (pdfFieldHeight > (scaledFontSize * 2)) {
+                        drawOptions.y = targetY - paddingX - scaledFontSize; 
+                    } else {
+                        drawOptions.y = centerY;
+                    }
+                } else {
+                    drawOptions.y = centerY;
+                }
+
+                page.drawText(textToStamp, drawOptions);
             }
         }
 
@@ -132,13 +197,12 @@ const appendAuditTrail = async (pdfBuffer, auditLogs, documentName) => {
         // Fallback to camelCase for Sequelize compatibility
         const actorEmail = log.actorEmail || log.actor_email;
         const createdAt = log.createdAt || log.created_at;
-        const ipAddress = log.ipAddress || log.ip_address || 'Unknown';
         const resultingHash = log.resultingHash || log.resulting_hash;
 
         page.drawText(`Actor: ${actorEmail}`, { x: 50, y: cursorY, size: 10, font });
         cursorY -= 15;
         
-        page.drawText(`Date: ${new Date(createdAt).toLocaleString('en-US')} | IP: ${ipAddress}`, { x: 50, y: cursorY, size: 10, font });
+        page.drawText(`Date: ${new Date(createdAt).toLocaleString('en-US')}`, { x: 50, y: cursorY, size: 10, font });
         cursorY -= 15;
         
         if (resultingHash) {

@@ -14,27 +14,20 @@ const REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
 class DocumentService {
 
     // List Documents (unified inbox: sent by you, or pending on you as a signer)
-        async listDocuments(userId, userEmail, isAdmin = false, folderId = undefined) {
-        let documentIds;
+    async listDocuments(userId, userEmail, folderId = undefined) {
+        // Step 1: figure out which document ids the user should see at all.
+        const sentByYouIds = await Document.findAll({
+            where: { initiator_id: userId },
+            attributes: ['id']
+        });
 
-        if (isAdmin) {
-            const allDocs = await Document.findAll({ attributes: ['id'] });
-            documentIds = allDocs.map(d => d.id);
-        } else {
-            // Step 1: figure out which document ids the user should see at all.
-            const sentByYouIds = await Document.findAll({
-                where: { initiator_id: userId },
-                attributes: ['id']
-            });
+        const pendingOnYouIds = await Document.findAll({
+            where: { status: { [Op.ne]: 'draft' } },
+            attributes: ['id'],
+            include: [{ model: WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
+        });
 
-            const pendingOnYouIds = await Document.findAll({
-                where: { status: { [Op.ne]: 'draft' } },
-                attributes: ['id'],
-                include: [{ model: WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
-            });
-
-            documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
-        }
+        const documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
         
         if (documentIds.length === 0) return [];
 
@@ -70,6 +63,7 @@ class DocumentService {
                 resumeCount: document.resumeCount,
                 createdAt: document.created_at,
                 updatedAt: document.updated_at,
+                dueDate: document.dueDate,
                 totalSteps: steps.length,
                 signedSteps: steps.filter(s => s.status === 'completed').length,
                 declinedBy: declinedStep ? declinedStep.signerName : null,
@@ -96,6 +90,7 @@ class DocumentService {
                 stepId: step.id,
                 documentId: step.document_id,
                 documentName: step.Document.fileName,
+                dueDate: step.Document.dueDate,
                 stepOrder: step.stepOrder,
                 accessToken: step.accessToken
             }));
@@ -115,7 +110,7 @@ class DocumentService {
 
         const inProgressDocs = myInitiated.filter(d => ['pending', 'in_progress'].includes(d.status));
         const completedThisMonth = myInitiated.filter(d => d.status === 'completed' && new Date(d.updatedAt) >= startOfMonth);
-        const overdueDocs = inProgressDocs.filter(d => new Date(d.createdAt) < fiveDaysAgo);
+        const overdueDocs = inProgressDocs.filter(d => d.dueDate ? (new Date(d.dueDate) < now) : (new Date(d.createdAt) < fiveDaysAgo));
 
         const statusBreakdown = {
             awaitingSignature: myInitiated.filter(d => d.status === 'pending').length,
@@ -320,7 +315,7 @@ class DocumentService {
     }
 
     // Upload Document
-    async upload(fileBuffer, originalName, initiatorId) {
+    async upload(fileBuffer, originalName, initiatorId, folder_id = null) {
         if (!fileBuffer) throw new Error('NO_FILE');
         
         // Upload to Cloudflare R2
@@ -331,7 +326,8 @@ class DocumentService {
             initiator_id: initiatorId, 
             fileName: originalName,
             originalFilePath: r2FileKey,
-            status: 'draft'
+            status: 'draft',
+            folder_id: folder_id || null
         });
 
         return document;
@@ -389,37 +385,45 @@ class DocumentService {
                 ipAddress: ipAddress
             }, { transaction });
 
-            await transaction.commit();
-
-            // Conditional Branching (Outside transaction as email sending is an external side-effect)
             let isInitiatorFirst = false;
+            let otp = null;
 
             if (firstSignerEmail === initiatorEmail) {
                 isInitiatorFirst = true;
                 console.log(`Initiator is Level 1. Skipping email. Token: ${firstSignerToken}`);
             } else if (firstSignerEmail) {
-                const otp = Math.floor(100000 + Math.random() * 900000).toString();
+                otp = Math.floor(100000 + Math.random() * 900000).toString();
+                // Include this update IN the transaction to prevent outer-scope crashes
                 await WorkflowStep.update(
-                    { otpCode: otp, otpExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }, // 7 days
-                    { where: { accessToken: firstSignerToken } }
+                    { otpCode: otp, otpExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+                    { where: { accessToken: firstSignerToken }, transaction } 
                 );
-                
-                // Check if this is a Revision Dispatch
-                if (document.parent_document_id) {
-                    await sendRevisionEmail(firstSignerEmail, firstSignerName, firstSignerToken, document.fileName, otp);
-                    
-                    // Find all signers who COMPLETED the old document and send them a notice
-                    const oldCompletedSteps = await WorkflowStep.findAll({
-                        where: { document_id: document.parent_document_id, status: 'completed' }
-                    });
-                    
-                    for (const old of oldCompletedSteps) {
-                        await sendRevisionNoticeEmail(old.signerEmail, old.signerName, document.fileName);
+            }
+
+            // COMMIT (after all database updates are finalized)
+            await transaction.commit();
+
+            // External side-effect (Email Sending) wrapped safely so it doesn't trigger rollback
+            try {
+                if (!isInitiatorFirst && firstSignerEmail) {
+                    if (document.parent_document_id) {
+                        await sendRevisionEmail(firstSignerEmail, firstSignerName, firstSignerToken, document.fileName, otp);
+                        
+                        // Find all signers who COMPLETED the old document and send them a notice
+                        const oldCompletedSteps = await WorkflowStep.findAll({
+                            where: { document_id: document.parent_document_id, status: 'completed' }
+                        });
+                        
+                        for (const old of oldCompletedSteps) {
+                            await sendRevisionNoticeEmail(old.signerEmail, old.signerName, document.fileName);
+                        }
+                    } else {
+                        // Standard new document dispatch
+                        await sendSignatureEmail(firstSignerEmail, firstSignerName, firstSignerToken, document.fileName, otp);
                     }
-                } else {
-                    // Standard new document dispatch
-                    await sendSignatureEmail(firstSignerEmail, firstSignerName, firstSignerToken, document.fileName, otp);
                 }
+            } catch (emailErr) {
+                console.error("Failed to send dispatch emails, but document was dispatched:", emailErr);
             }
 
             return { isInitiatorFirst, redirectToken: isInitiatorFirst ? firstSignerToken : null };
@@ -716,7 +720,7 @@ class DocumentService {
             });
 
             const draftConfig = {
-                currentStep: 3, // Jump directly to Tag Document
+                currentStep: 2, // Jump directly to Tag Document
                 isInitiatorFirst: false,
                 initiatorReceivesFinalCopy: true,
                 signers: signers,
@@ -942,15 +946,17 @@ class DocumentService {
     
 
     // Get Download URL (initiator or any participant, any time)
-    async getDownloadUrl(documentId, userId, userEmail) {
+    async getDownloadUrl(documentId, userId, userEmail, isAdmin = false) {
         const document = await Document.findByPk(documentId, {
             include: [{ model: WorkflowStep }]
         });
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
 
-        const isInitiator = document.initiator_id === userId;
-        const isParticipant = (document.WorkflowSteps || []).some(s => s.signerEmail === userEmail);
-        if (!isInitiator && !isParticipant) throw new Error('NOT_OWNER');
+        if (!isAdmin) {
+            const isInitiator = document.initiator_id === userId;
+            const isParticipant = (document.WorkflowSteps || []).some(s => s.signerEmail === userEmail);
+            if (!isInitiator && !isParticipant) throw new Error('NOT_OWNER');
+        }
 
         // We fetch the signed file if it exists, otherwise the original draft file
         const targetFileKey = document.signedFilePath || document.originalFilePath;
@@ -974,12 +980,20 @@ class DocumentService {
 
     // Approve Document (initiator confirms the fully-signed document, triggers sealing)
     async approveDocument(documentId, initiatorId) {
-        const document = await Document.findByPk(documentId);
+        const document = await Document.findByPk(documentId, { include: [User] });
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
         if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
         if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
 
+        await AuditLog.create({
+            document_id: documentId,
+            action: 'DOCUMENT_APPROVED',
+            actorEmail: document.User ? document.User.email : 'Initiator',
+            actorIp: 'System'
+        });
+
         await this.finalizeDocument(documentId);
+        await document.reload();
         return { document };
     }
 
@@ -1057,10 +1071,17 @@ class DocumentService {
 
     // Approve Document (initiator reviews the fully-signed document, then seals it)
     async approveDocument(documentId, initiatorId) {
-        const document = await Document.findByPk(documentId);
+        const document = await Document.findByPk(documentId, { include: [User] });
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
         if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
         if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
+
+        await AuditLog.create({
+            document_id: documentId,
+            action: 'DOCUMENT_APPROVED',
+            actorEmail: document.User ? document.User.email : 'Initiator',
+            actorIp: 'System'
+        });
 
         await this.finalizeDocument(documentId);
         await document.reload();
@@ -1107,7 +1128,7 @@ class DocumentService {
             await AuditLog.create({
                 document_id: documentId,
                 action: 'DOCUMENT_COMPLETED_AND_SEALED',
-                actorEmail: 'system@dsign.local',
+                actorEmail: document.User.email,
                 resultingHash: masterHash
             });
 
@@ -1155,6 +1176,21 @@ class DocumentService {
             console.error('[Workflow] Finalization Error:', error);
             throw error;
         }
+    }
+    
+    async renameDocument(userId, documentId, newName) {
+        const document = await Document.findByPk(documentId);
+        if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.initiator_id !== userId) throw new Error('NOT_OWNER');
+        
+        let sanitizedName = newName.trim();
+        if (!sanitizedName.toLowerCase().endsWith('.pdf')) {
+            sanitizedName += '.pdf';
+        }
+        
+        document.fileName = sanitizedName;
+        await document.save();
+        return document;
     }
 }
 
