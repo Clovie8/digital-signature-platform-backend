@@ -1,12 +1,9 @@
-const { AppError } = require('../utils/errors');
-
-const errorMiddleware = (err, req, res, next) => {
+const errorMiddleware = (err, res) => {
   err.statusCode = err.statusCode || 500;
   err.status = err.status || 'error';
 
-  console.error('[Error Middleware]:', err.message);
-
   if (err.isOperational) {
+    console.warn('[Operational Error]:', err.message);
     return res.status(err.statusCode).json({
       status: err.status,
       error: err.message

@@ -136,7 +136,12 @@ class TemplateService {
         const fileBuffer = await getFileBufferFromR2(template.filePath);
         const newFileKey = await uploadBufferToR2(fileBuffer, template.fileName);
 
-        const signers = (template.templateConfig?.signers || []).map(s => ({ ...s, name: '', email: '' }));
+        const signers = (template.templateConfig?.signers || []).map((s, index) => ({ 
+            ...s, 
+            id: s.id || s.order || (index + 1),
+            name: s.name || '', 
+            email: s.email || '' 
+        }));
         const fields = template.templateConfig?.fields || [];
 
         const document = await Document.create({
@@ -181,9 +186,12 @@ class TemplateService {
         const sourceFields = document.draftConfig?.fields || [];
 
         const templateSigners = sourceSigners.map(s => ({
+            id: s.id,
+            name: s.name || '',
+            email: s.email || '',
             role: s.role,
             color: s.color,
-            order: s.id
+            order: s.id || s.order
         }));
 
         const template = await Template.create({
