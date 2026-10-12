@@ -17,12 +17,12 @@ class DocumentService {
     async listDocuments(userId, userEmail, folderId = undefined) {
         // Step 1: figure out which document ids the user should see at all.
         const sentByYouIds = await Document.findAll({
-            where: { initiator_id: userId },
+            where: { initiator_id: userId, trashed_at: null },
             attributes: ['id']
         });
 
         const pendingOnYouIds = await Document.findAll({
-            where: { status: { [Op.ne]: 'draft' } },
+            where: { status: { [Op.ne]: 'draft' }, trashed_at: null },
             attributes: ['id'],
             include: [{ model: WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
         });
@@ -31,7 +31,7 @@ class DocumentService {
         
         if (documentIds.length === 0) return [];
 
-        const whereClause = { id: { [Op.in]: documentIds } };
+        const whereClause = { id: { [Op.in]: documentIds }, trashed_at: null };
         if (folderId !== undefined) {
             whereClause.folder_id = folderId === 'null' ? null : folderId;
         }
@@ -81,7 +81,7 @@ class DocumentService {
     async listPendingForSigner(email) {
         const steps = await WorkflowStep.findAll({
             where: { signerEmail: email, status: 'pending' },
-            include: [{ model: Document }],
+            include: [{ model: Document, where: { trashed_at: null } }],
             order: [['stepOrder', 'ASC']]
         });
         return steps
@@ -156,7 +156,7 @@ class DocumentService {
             };
         }));
 
-        const documentsInProgress = inProgressDocs.slice(0, 10).map(d => ({
+        const documentsInProgress = inProgressDocs.slice(0, 5).map(d => ({
             id: d.id,
             title: d.fileName,
             detail: `Step ${d.signedSteps + 1} of ${d.totalSteps} · waiting on ${d.pendingOn || '—'}`,
@@ -199,6 +199,7 @@ class DocumentService {
             include: [{ model: WorkflowStep }]
         });
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.trashed_at && !isAdmin) throw new Error('DOCUMENT_NOT_FOUND');
 
         if (!isAdmin) {
             const isInitiator = document.initiator_id === userId;
@@ -490,6 +491,7 @@ class DocumentService {
         if (!step) throw new Error('INVALID_LINK');
         if (step.Document.status === 'declined') throw new Error('DOCUMENT_DECLINED');
         if (step.Document.status === 'voided') throw new Error('DOCUMENT_VOIDED');
+        if (step.Document.trashed_at) throw new Error('DOCUMENT_VOIDED');
         if (step.status !== 'pending') throw new Error('ALREADY_SIGNED');
 
         const isInitiator = loggedInEmail && loggedInEmail === step.signerEmail;
@@ -527,6 +529,7 @@ class DocumentService {
             if (step.status !== 'pending') throw new Error('INVALID_STATE');
 
             const document = await Document.findByPk(step.document_id, { transaction });
+            if (!document || document.trashed_at) throw new Error('INVALID_STATE');
             
             // 1. INITIALIZE THE FIELDS FIRST
             const fieldsToStamp = updatedFields && updatedFields.length > 0 ? updatedFields : step.signatureUiData;
@@ -582,6 +585,7 @@ class DocumentService {
             if (!reason || !reason.trim()) throw new Error('MISSING_REASON');
 
             const document = await Document.findByPk(step.document_id, { include: [User], transaction });
+            if (!document || document.trashed_at) throw new Error('INVALID_STATE');
 
             await step.update({ status: 'declined', declineReason: reason }, { transaction });
             await document.update({ status: 'declined' }, { transaction });
@@ -624,6 +628,7 @@ class DocumentService {
         try {
             const document = await Document.findByPk(documentId, { transaction });
             if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+            if (document.trashed_at) throw new Error('DOCUMENT_NOT_FOUND');
             if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
             if (document.status !== 'declined') throw new Error('INVALID_STATE');
             if (document.resumeCount >= MAX_RESUMES) throw new Error('RESUME_LIMIT_REACHED');
@@ -680,6 +685,7 @@ class DocumentService {
         try {
             const oldDocument = await Document.findByPk(documentId, { transaction });
             if (!oldDocument) throw new Error('DOCUMENT_NOT_FOUND');
+            if (oldDocument.trashed_at) throw new Error('DOCUMENT_NOT_FOUND');
             if (oldDocument.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
             if (oldDocument.status !== 'declined') throw new Error('INVALID_STATE');
 
@@ -831,6 +837,7 @@ class DocumentService {
     async sendReminder(documentId, initiatorId, initiatorEmail, ipAddress) {
         const document = await Document.findByPk(documentId);
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.trashed_at) throw new Error('DOCUMENT_NOT_FOUND');
         if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
         if (!['pending', 'in_progress'].includes(document.status)) throw new Error('INVALID_STATE');
 
@@ -951,6 +958,7 @@ class DocumentService {
             include: [{ model: WorkflowStep }]
         });
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.trashed_at && !isAdmin) throw new Error('DOCUMENT_NOT_FOUND');
 
         if (!isAdmin) {
             const isInitiator = document.initiator_id === userId;
@@ -970,6 +978,7 @@ class DocumentService {
     async getReviewFile(documentId, initiatorId) {
         const document = await Document.findByPk(documentId);
         if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+        if (document.trashed_at) throw new Error('DOCUMENT_NOT_FOUND');
         if (document.initiator_id !== initiatorId) throw new Error('NOT_OWNER');
         if (document.status !== 'pending_review') throw new Error('INVALID_STATE');
 

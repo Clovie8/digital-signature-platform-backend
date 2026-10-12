@@ -40,6 +40,20 @@ const Document = sequelize.define('Document', {
     dueDate: {
         type: DataTypes.DATE,
         allowNull: true,
+    },
+    template_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+    },
+    trashed_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
+    },
+    trashed_with_folder_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        defaultValue: null,
     }
 }, {
     tableName: 'documents',
@@ -47,11 +61,6 @@ const Document = sequelize.define('Document', {
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at'
-}, {
-  templateId: {
-    type: DataTypes.UUID,
-    allowNull: true,
-  }  
 });
 
 module.exports = Document;

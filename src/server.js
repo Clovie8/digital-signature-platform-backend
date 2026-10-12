@@ -18,6 +18,7 @@ const workflowRoutes = require('./routes/workflowRoutes');
 const signatureRoutes = require('./routes/signatureRoutes');
 const folderRoutes = require('./routes/folderRoutes');
 const templateRoutes = require('./routes/templateRoute');
+const trashRoutes = require('./routes/trashRoutes');
 
 const app = express();
 
@@ -59,6 +60,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/signatures', signatureRoutes);
 app.use('/api/folders', folderRoutes);
+app.use('/api/trash', trashRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', templateRoutes);
 

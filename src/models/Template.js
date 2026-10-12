@@ -39,6 +39,16 @@ const Template = sequelize.define('Template', {
         },
         onDelete: 'SET NULL'
     },
+    trashed_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null
+    },
+    trashed_with_folder_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        defaultValue: null
+    }
 }, {
     tableName: 'templates',
     underscored: true,

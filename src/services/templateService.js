@@ -22,6 +22,7 @@ class TemplateService {
         const { User } = require('../models');
         const templates = await Template.findAll({
             where: {
+                trashed_at: null,
                 [Op.or]: [
                     { created_by: userId },
                     { id: { [Op.in]: sharedTemplateIds } },
@@ -67,6 +68,7 @@ class TemplateService {
             include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
         });
         if (!template) throw new Error('TEMPLATE_NOT_FOUND');
+        if (template.trashed_at) throw new Error('TEMPLATE_NOT_FOUND');
 
         // Note: access control logic should also check folder access in a full implementation.
         // For now, we enforce owner or shared signers.
@@ -100,6 +102,7 @@ class TemplateService {
             include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
         });
         if (!templateModel) throw new Error('TEMPLATE_NOT_FOUND');
+        if (templateModel.trashed_at) throw new Error('TEMPLATE_NOT_FOUND');
         
         const hasAccess = isAdmin || templateModel.created_by === userId || templateModel.TemplateSigners.length > 0;
         if (!hasAccess) {
@@ -121,6 +124,7 @@ class TemplateService {
             include: [{ model: TemplateSigner, required: false, where: { user_id: userId } }]
         });
         if (!template) throw new Error('TEMPLATE_NOT_FOUND');
+        if (template.trashed_at) throw new Error('TEMPLATE_TRASHED');
 
         let hasAccess = template.created_by === userId || template.TemplateSigners.length > 0;
         if (!hasAccess) {

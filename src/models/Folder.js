@@ -18,7 +18,9 @@ const Folder = sequelize.define('Folder', {
         allowNull: false, 
         defaultValue: 'document' 
     },
-    is_public: { type: DataTypes.BOOLEAN, defaultValue: false }
+    is_public: { type: DataTypes.BOOLEAN, defaultValue: false },
+    trashed_at: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    trashed_with_folder_id: { type: DataTypes.UUID, allowNull: true, defaultValue: null }
 }, {
     tableName: 'folders',
     underscored: true,
