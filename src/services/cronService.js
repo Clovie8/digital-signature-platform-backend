@@ -21,7 +21,7 @@ const startCronJobs = () => {
                 },
                 include: [{ 
                     model: Document,
-                    where: { status: 'pending' }
+                    where: { status: 'pending', trashed_at: null }
                 }]
             });
 
@@ -99,7 +99,8 @@ const startCronJobs = () => {
             const overdueDocuments = await Document.findAll({
                 where: {
                     status: 'pending',
-                    dueDate: { [Op.ne]: null, [Op.lt]: now }
+                    dueDate: { [Op.ne]: null, [Op.lt]: now },
+                    trashed_at: null
                 },
                 include: [User]
             });
@@ -143,6 +144,17 @@ const startCronJobs = () => {
             }
         } catch (error) {
             console.error('[Cron] Failed to process reminders/expiration:', error);
+        }
+    });
+
+    // 2. TRASH 30-DAY AUTO-PURGE JOB (Runs daily at 02:00 AM)
+    const trashService = require('./trashService');
+    cron.schedule('0 2 * * *', async () => {
+        console.log('[Cron] Running daily 30-day Trash Auto-Purge...');
+        try {
+            await trashService.autoPurgeExpired();
+        } catch (error) {
+            console.error('[Cron] Trash Auto-Purge failed:', error);
         }
     });
 };

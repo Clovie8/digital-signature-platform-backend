@@ -235,6 +235,7 @@ class AdminService {
     }
     async getAllSystemFiles() {
         const documents = await Document.findAll({
+            where: { trashed_at: null },
             include: [{ model: User }, { model: WorkflowStep }],
             order: [['updated_at', 'DESC']]
         });
@@ -264,6 +265,7 @@ class AdminService {
         });
 
         const templates = await Template.findAll({
+            where: { trashed_at: null },
             include: [{ model: User }],
             order: [['created_at', 'DESC']]
         });

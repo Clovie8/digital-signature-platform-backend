@@ -75,13 +75,13 @@ class FolderService {
         let folders = [];
         if (folderId) {
             folders = await Folder.findAll({
-                where: { parent_folder_id: folderId },
+                where: { parent_folder_id: folderId, trashed_at: null },
                 order: [['created_at', 'DESC']]
             });
         } else {
             // Root level: owned root folders + all explicitly shared folders
             const owned = await Folder.findAll({
-                where: { parent_folder_id: null, owner_id: userId }
+                where: { parent_folder_id: null, owner_id: userId, trashed_at: null }
             });
             
             const sharedAccess = await FolderAccess.findAll({
@@ -93,7 +93,7 @@ class FolderService {
             let shared = [];
             if (sharedFolderIds.length > 0) {
                 shared = await Folder.findAll({
-                    where: { id: { [Op.in]: sharedFolderIds } }
+                    where: { id: { [Op.in]: sharedFolderIds }, trashed_at: null }
                 });
             }
             
@@ -119,19 +119,17 @@ class FolderService {
         let docWhere = {};
         
         const sentByYouIds = await Document.findAll({
-              where: { initiator_id: userId, folder_id: folderId || null },
+              where: { initiator_id: userId, folder_id: folderId || null, trashed_at: null },
               attributes: ['id']
         });
         const pendingOnYouIds = await Document.findAll({
-              where: { folder_id: folderId || null, status: { [Op.ne]: 'draft' } },
+              where: { folder_id: folderId || null, status: { [Op.ne]: 'draft' }, trashed_at: null },
               attributes: ['id'],
               include: [{ model: sequelize.models.WorkflowStep, where: { signerEmail: userEmail }, required: true, attributes: [] }]
         });
         const documentIds = [...new Set([...sentByYouIds, ...pendingOnYouIds].map(d => d.id))];
         
-        docWhere = { id: { [Op.in]: documentIds } };
-
-        
+        docWhere = { id: { [Op.in]: documentIds }, trashed_at: null };
 
         const docs = await Document.findAll({
             where: docWhere,
@@ -141,17 +139,8 @@ class FolderService {
 
         let templateWhere = {};
         if (folderId) {
-            templateWhere = { folder_id: folderId };
+            templateWhere = { folder_id: folderId, trashed_at: null };
         } else {
-            // Root level: templates created by user and not in a folder, PLUS templates shared with user
-            // Wait, templates are either created_by the user, or the user is in TemplateSigner.
-            // And folder_id must be null for root level.
-            // Wait, if a template is in a shared folder, we handle it in `folderId != null`.
-            // So for root level, we just get root templates.
-            const createdWhere = { created_by: userId, folder_id: null };
-            
-            // Also templates shared directly via TemplateSigner (if any) and in root?
-            // Actually let's fetch like listTemplates does, but only those in root.
             const sharedTemplateIdsRes = await sequelize.models.TemplateSigner.findAll({
                 where: { user_id: userId },
                 attributes: ['template_id']
@@ -160,6 +149,7 @@ class FolderService {
             
             templateWhere = {
                 folder_id: null,
+                trashed_at: null,
                 [Op.or]: [
                     { created_by: userId },
                     { id: { [Op.in]: sharedTemplateIds } }
@@ -253,13 +243,15 @@ class FolderService {
     async moveItem(itemId, itemType, destinationFolderId, userId) {
         // Destination check
         if (destinationFolderId) {
+            const destFolder = await Folder.findByPk(destinationFolderId);
+            if (!destFolder || destFolder.trashed_at) throw new Error('DESTINATION_FOLDER_NOT_FOUND');
             const destRole = await this.getEffectiveRole(destinationFolderId, userId);
             if (destRole !== 'editor' && destRole !== 'manager') throw new Error('NO_WRITE_ACCESS_DESTINATION');
         }
 
         if (itemType === 'folder') {
             const folder = await Folder.findByPk(itemId);
-            if (!folder) throw new Error('FOLDER_NOT_FOUND');
+            if (!folder || folder.trashed_at) throw new Error('FOLDER_NOT_FOUND');
             const sourceRole = await this.getEffectiveRole(folder.id, userId);
             if (sourceRole !== 'manager' && sourceRole !== 'editor') throw new Error('NO_WRITE_ACCESS_SOURCE');
             
@@ -293,7 +285,7 @@ class FolderService {
 
         } else if (itemType === 'document') {
             const document = await Document.findByPk(itemId);
-            if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+            if (!document || document.trashed_at) throw new Error('DOCUMENT_NOT_FOUND');
             // If the document is inside a folder, check source folder access
             if (document.folder_id) {
                 const sourceRole = await this.getEffectiveRole(document.folder_id, userId);
@@ -313,7 +305,7 @@ class FolderService {
             return document;
         } else if (itemType === 'template') {
             const template = await Template.findByPk(itemId);
-            if (!template) throw new Error('TEMPLATE_NOT_FOUND');
+            if (!template || template.trashed_at) throw new Error('TEMPLATE_NOT_FOUND');
             if (template.folder_id) {
                 const sourceRole = await this.getEffectiveRole(template.folder_id, userId);
                 if (sourceRole !== 'manager' && sourceRole !== 'editor') throw new Error('NO_WRITE_ACCESS_SOURCE');
@@ -343,13 +335,15 @@ class FolderService {
                     SELECT f.id, f.parent_folder_id 
                     FROM "folders" f
                     LEFT JOIN folder_accesses fa ON f.id = fa.folder_id
-                    WHERE f.owner_id = :userId OR fa.user_id = :userId OR f.is_public = true
+                    WHERE (f.owner_id = :userId OR fa.user_id = :userId OR f.is_public = true)
+                      AND f.trashed_at IS NULL
                     
                     UNION ALL
                     
                     SELECT child.id, child.parent_folder_id
                     FROM "folders" child
                     INNER JOIN AccessibleFolders af ON child.parent_folder_id = af.id
+                    WHERE child.trashed_at IS NULL
                 )
                 SELECT DISTINCT id FROM AccessibleFolders;
             `;
@@ -360,7 +354,7 @@ class FolderService {
             accessibleFolderIds = results.map(r => r.id);
 
         const { Op } = require('sequelize');
-        const whereClause = { id: { [Op.in]: accessibleFolderIds } };
+        const whereClause = { id: { [Op.in]: accessibleFolderIds }, trashed_at: null };
         if (parentId !== undefined) {
             whereClause.parent_folder_id = parentId === 'null' ? null : parentId;
         }
