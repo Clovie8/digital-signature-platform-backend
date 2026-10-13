@@ -2,7 +2,7 @@ const signatureService = require('../services/signatureService');
 const asyncHandler = require('../utils/asyncHandler');
 const { AppError, NotFoundError, ValidationError, UnauthorizedError } = require('../utils/errors');
 const { Signature, Signer } = require('../models');
-const { uploadImageToR2, deleteFromR2 } = require('../utils/s3Manager'); 
+const { uploadImageToR2, deleteFromR2, getPresignedPdfUrl } = require('../utils/s3Manager'); 
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { sendPinResetEmail } = require('../utils/emailManager');
@@ -154,5 +154,40 @@ const confirmPinReset = asyncHandler(async (req, res) => {
     res.status(200).json({ message: 'PIN reset successfully.' });
 });
 
+const getMySignatures = asyncHandler(async (req, res) => {
+    let userEmail = req.user?.email;
+    if (!userEmail && req.user?.userId) {
+        const { User } = require('../models');
+        const user = await User.findByPk(req.user.userId);
+        if (user) userEmail = user.email;
+    }
 
-module.exports = { submitSignature, uploadSavedSignature, deleteSavedSignature, checkSecurityStatus, verifyVault, requestPinReset, confirmPinReset };
+    if (!userEmail) throw new ValidationError('Email is required.');
+
+    const vault = await Signer.findOne({
+        where: { email: userEmail },
+        include: [{ model: Signature, as: 'signatures' }]
+    });
+
+    const isProtected = !!vault?.pin_hash;
+    const savedSignatures = vault ? vault.signatures : [];
+
+    const secureSavedSignatures = await Promise.all(
+        savedSignatures.map(async (sig) => {
+            return {
+                id: sig.id,
+                originalKey: sig.signature_url,
+                displayUrl: await getPresignedPdfUrl(sig.signature_url),
+                isProtected: isProtected,
+                createdAt: sig.createdAt
+            };
+        })
+    );
+
+    res.status(200).json({
+        hasPin: isProtected,
+        savedSignatures: secureSavedSignatures
+    });
+});
+
+module.exports = { submitSignature, uploadSavedSignature, deleteSavedSignature, checkSecurityStatus, verifyVault, requestPinReset, confirmPinReset, getMySignatures };
